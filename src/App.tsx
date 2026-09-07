@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, errorMessage, type DiffView, type EntryView, type Opened } from "./api";
+import { api, errorMessage, isStale, type DiffView, type EntryView, type Opened } from "./api";
 import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs";
 import { FolderTree } from "./FolderTree";
 import { Inspector } from "./Inspector";
@@ -27,7 +27,6 @@ export function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [diff, setDiff] = useState<DiffView | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const receive = useCallback((result: Opened) => {
@@ -37,7 +36,6 @@ export function App() {
     setDialog(null);
     setDiff(null);
     setError(null);
-    setReloadKey((k) => k + 1);
   }, []);
 
   // Breadcrumbs follow whatever the map is rooted at.
@@ -45,13 +43,16 @@ export function App() {
     if (!opened) return;
     let cancelled = false;
     api
-      .ancestors(mapRoot)
+      .ancestors(opened.generation, mapRoot)
       .then((chain) => !cancelled && setCrumbs(chain))
-      .catch((err) => !cancelled && setError(errorMessage(err)));
+      .catch((err) => {
+        if (cancelled || isStale(err)) return;
+        setError(errorMessage(err));
+      });
     return () => {
       cancelled = true;
     };
-  }, [opened, mapRoot, reloadKey]);
+  }, [opened, mapRoot]);
 
   // Backspace goes up a level, the way a file manager does.
   useEffect(() => {
@@ -109,10 +110,10 @@ export function App() {
         <div className="workspace">
           <div className="sidebar">
             <FolderTree
+              generation={opened.generation}
               root={opened.root}
               selected={selected}
               mapRoot={mapRoot}
-              reloadKey={reloadKey}
               onSelect={setSelected}
               onZoom={setMapRoot}
             />
@@ -145,8 +146,8 @@ export function App() {
             )}
 
             <Treemap
+              generation={opened.generation}
               root={mapRoot}
-              reloadKey={reloadKey}
               selected={selected}
               onSelect={setSelected}
               onZoom={setMapRoot}

@@ -17,6 +17,7 @@
 //! a label, and for whatever the pointer is over.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -57,24 +58,62 @@ impl Source {
 struct Loaded {
     tree: Tree,
     source: Source,
+    generation: u64,
 }
 
 #[derive(Default)]
 pub struct AppState {
     current: Mutex<Option<Loaded>>,
+    /// Incremented every time a different tree is loaded.
+    ///
+    /// This is what makes a node id meaningful. On its own an id is just an
+    /// index, so an id obtained from one scan will happily address a
+    /// completely different entry in the next one — and the frontend can hold
+    /// stale ids in flight while a new scan replaces the tree underneath it.
+    /// Pairing every id with the generation it came from turns that class of
+    /// bug into a plain error instead of a wrong answer.
+    generation: AtomicU64,
 }
 
+/// Returned when a request carries ids from a tree that is no longer open.
+/// Callers are expected to recognise it and simply drop the result.
+pub const STALE_GENERATION: &str = "stale-generation";
+
 impl AppState {
-    fn with_tree<T>(&self, f: impl FnOnce(&Tree, &Source) -> Result<T, String>) -> Result<T, String> {
+    /// Read the open tree without caring which one it is. Only for commands
+    /// that take no node id.
+    fn with_tree<T>(
+        &self,
+        f: impl FnOnce(&Tree, &Source) -> Result<T, String>,
+    ) -> Result<T, String> {
         let guard = self.current.lock().map_err(|_| lock_poisoned())?;
         let loaded = guard.as_ref().ok_or("nothing is open yet")?;
         f(&loaded.tree, &loaded.source)
     }
 
-    fn set(&self, tree: Tree, source: Source) -> Result<(), String> {
+    /// Read the open tree, but only if it is still the one `generation` names.
+    fn with_tree_at<T>(
+        &self,
+        generation: u64,
+        f: impl FnOnce(&Tree, &Source) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let guard = self.current.lock().map_err(|_| lock_poisoned())?;
+        let loaded = guard.as_ref().ok_or("nothing is open yet")?;
+        if loaded.generation != generation {
+            return Err(STALE_GENERATION.to_string());
+        }
+        f(&loaded.tree, &loaded.source)
+    }
+
+    fn set(&self, tree: Tree, source: Source) -> Result<u64, String> {
         let mut guard = self.current.lock().map_err(|_| lock_poisoned())?;
-        *guard = Some(Loaded { tree, source });
-        Ok(())
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        *guard = Some(Loaded {
+            tree,
+            source,
+            generation,
+        });
+        Ok(generation)
     }
 }
 
@@ -171,6 +210,9 @@ fn entry_view(tree: &Tree, id: NodeId) -> EntryView {
 /// Summary of whatever is now open.
 #[derive(Debug, Clone, Serialize)]
 pub struct Opened {
+    /// Which tree the ids in this response belong to. Every later request that
+    /// names a node must pass it back.
+    pub generation: u64,
     pub source: Source,
     pub root: EntryView,
     pub total_size: u64,
@@ -182,8 +224,15 @@ pub struct Opened {
     pub error_samples: Vec<String>,
 }
 
-fn opened(tree: &Tree, source: &Source, errors: u64, samples: Vec<String>) -> Opened {
+fn opened(
+    tree: &Tree,
+    source: &Source,
+    errors: u64,
+    samples: Vec<String>,
+    generation: u64,
+) -> Opened {
     Opened {
+        generation,
         source: source.clone(),
         root: entry_view(tree, tree.root()),
         total_size: tree.total_size(),
@@ -230,7 +279,7 @@ fn scan_directory(state: tauri::State<'_, AppState>, req: ScanRequest) -> Result
     let (tree, stats) = scan(&path, options, Arc::new(ScanProgress::default()))
         .map_err(|e| format!("cannot scan {}: {e:#}", path.display()))?;
 
-    let samples = stats
+    let samples: Vec<String> = stats
         .error_samples
         .iter()
         .take(20)
@@ -239,9 +288,8 @@ fn scan_directory(state: tauri::State<'_, AppState>, req: ScanRequest) -> Result
     let source = Source::Live {
         root: tree.root_path().to_string_lossy().into_owned(),
     };
-    let view = opened(&tree, &source, stats.errors, samples);
-    state.set(tree, source)?;
-    Ok(view)
+    let generation = state.set(tree, source)?;
+    state.with_tree(|tree, source| Ok(opened(tree, source, stats.errors, samples.clone(), generation)))
 }
 
 /// Snapshots stored in a database file.
@@ -265,9 +313,8 @@ fn open_snapshot(
         .map_err(|e| format!("cannot load snapshot #{scan_id}: {e:#}"))?;
 
     let source = snapshot_source(&meta, None);
-    let view = opened(&tree, &source, meta.errors, Vec::new());
-    state.set(tree, source)?;
-    Ok(view)
+    let generation = state.set(tree, source)?;
+    state.with_tree(|tree, source| Ok(opened(tree, source, meta.errors, Vec::new(), generation)))
 }
 
 fn snapshot_source(meta: &ScanMeta, remote: Option<String>) -> Source {
@@ -283,6 +330,8 @@ fn snapshot_source(meta: &ScanMeta, remote: Option<String>) -> Source {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LayoutRequest {
+    /// Which tree `node` belongs to; see [`AppState::generation`].
+    pub generation: u64,
     /// Subtree to lay out; the frontend passes the zoom target.
     pub node: NodeId,
     pub width: f64,
@@ -329,7 +378,7 @@ pub struct TileArrays {
 /// own children, so painting the array in order puts children on top.
 #[tauri::command]
 fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<TileArrays, String> {
-    state.with_tree(|tree, _| {
+    state.with_tree_at(req.generation, |tree, _| {
         if req.node as usize >= tree.len() {
             return Err(format!("no entry {}", req.node));
         }
@@ -377,8 +426,12 @@ fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<Tile
 
 /// Names for specific entries, for the tiles big enough to be labelled.
 #[tauri::command]
-fn labels(state: tauri::State<'_, AppState>, nodes: Vec<NodeId>) -> Result<Vec<String>, String> {
-    state.with_tree(|tree, _| {
+fn labels(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    nodes: Vec<NodeId>,
+) -> Result<Vec<String>, String> {
+    state.with_tree_at(generation, |tree, _| {
         Ok(nodes
             .into_iter()
             .map(|id| {
@@ -394,8 +447,12 @@ fn labels(state: tauri::State<'_, AppState>, nodes: Vec<NodeId>) -> Result<Vec<S
 
 /// Full detail for one entry, for the hover panel and the inspector.
 #[tauri::command]
-fn entry(state: tauri::State<'_, AppState>, node: NodeId) -> Result<EntryView, String> {
-    state.with_tree(|tree, _| {
+fn entry(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<EntryView, String> {
+    state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
             return Err(format!("no entry {node}"));
         }
@@ -407,10 +464,11 @@ fn entry(state: tauri::State<'_, AppState>, node: NodeId) -> Result<EntryView, S
 #[tauri::command]
 fn children(
     state: tauri::State<'_, AppState>,
+    generation: u64,
     node: NodeId,
     limit: Option<usize>,
 ) -> Result<Vec<EntryView>, String> {
-    state.with_tree(|tree, _| {
+    state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
             return Err(format!("no entry {node}"));
         }
@@ -428,8 +486,12 @@ fn children(
 
 /// Ancestors of an entry, root first, for breadcrumbs.
 #[tauri::command]
-fn ancestors(state: tauri::State<'_, AppState>, node: NodeId) -> Result<Vec<EntryView>, String> {
-    state.with_tree(|tree, _| {
+fn ancestors(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<Vec<EntryView>, String> {
+    state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
             return Err(format!("no entry {node}"));
         }
@@ -450,8 +512,12 @@ fn ancestors(state: tauri::State<'_, AppState>, node: NodeId) -> Result<Vec<Entr
 
 /// The absolute path of an entry on the machine that was scanned.
 #[tauri::command]
-fn absolute_path(state: tauri::State<'_, AppState>, node: NodeId) -> Result<String, String> {
-    state.with_tree(|tree, _| {
+fn absolute_path(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<String, String> {
+    state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
             return Err(format!("no entry {node}"));
         }
@@ -463,8 +529,12 @@ fn absolute_path(state: tauri::State<'_, AppState>, node: NodeId) -> Result<Stri
 
 /// Show an entry in Finder / Explorer / the desktop file manager.
 #[tauri::command]
-fn reveal(state: tauri::State<'_, AppState>, node: NodeId) -> Result<(), String> {
-    let path = live_path(&state, node)?;
+fn reveal(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<(), String> {
+    let path = live_path(&state, generation, node)?;
     reveal_path(&path)
 }
 
@@ -474,8 +544,12 @@ fn reveal(state: tauri::State<'_, AppState>, node: NodeId) -> Result<(), String>
 /// snapshot of the past or of another machine, where the path either no longer
 /// means what it says or is not ours to touch.
 #[tauri::command]
-fn move_to_trash(state: tauri::State<'_, AppState>, node: NodeId) -> Result<(), String> {
-    let path = live_path(&state, node)?;
+fn move_to_trash(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<(), String> {
+    let path = live_path(&state, generation, node)?;
     // Re-check on the real filesystem: the tree is a snapshot in time even when
     // it was taken seconds ago, and the user may be looking at something that
     // has since been replaced.
@@ -487,8 +561,12 @@ fn move_to_trash(state: tauri::State<'_, AppState>, node: NodeId) -> Result<(), 
 
 /// Resolve a node to a path, refusing when the open tree is not a live scan of
 /// this machine.
-fn live_path(state: &tauri::State<'_, AppState>, node: NodeId) -> Result<PathBuf, String> {
-    state.with_tree(|tree, source| {
+fn live_path(
+    state: &tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<PathBuf, String> {
+    state.with_tree_at(generation, |tree, source| {
         if !source.is_live() {
             return Err(
                 "this is a stored snapshot, not the live filesystem; open a fresh scan to act on files"
@@ -632,9 +710,8 @@ async fn open_remote_snapshot(
         .await
         .map_err(|e| format!("{e:#}"))?;
     let source = snapshot_source(&meta, Some(url));
-    let view = opened(&tree, &source, meta.errors, Vec::new());
-    state.set(tree, source)?;
-    Ok(view)
+    let generation = state.set(tree, source)?;
+    state.with_tree(|tree, source| Ok(opened(tree, source, meta.errors, Vec::new(), generation)))
 }
 
 /// Where the CLI keeps its snapshot database, so the app opens the same history.
@@ -734,6 +811,85 @@ mod tests {
     fn nothing_is_open_at_startup() {
         let state = AppState::default();
         let err = state.with_tree(|_, _| Ok(())).unwrap_err();
+        assert!(err.contains("nothing is open"), "{err}");
+    }
+
+    fn one_node_tree(name: &str) -> Tree {
+        use spacetrace_scan_core::Node;
+        Tree::from_parts(
+            vec![Node {
+                parent: Tree::NO_PARENT,
+                name: name.to_string(),
+                kind: EntryKind::Dir,
+                size: 0,
+                alloc: 0,
+                own_size: 0,
+                own_alloc: 0,
+                mtime: 0,
+                nlink: 1,
+                files: 0,
+                dirs: 0,
+                children_start: 0,
+                children_len: 0,
+            }],
+            PathBuf::from("/x"),
+        )
+    }
+
+    fn live(root: &str) -> Source {
+        Source::Live { root: root.into() }
+    }
+
+    #[test]
+    fn each_loaded_tree_gets_a_new_generation() {
+        let state = AppState::default();
+        let first = state.set(one_node_tree("a"), live("/a")).unwrap();
+        let second = state.set(one_node_tree("b"), live("/b")).unwrap();
+        assert!(second > first, "{second} should follow {first}");
+    }
+
+    /// The whole point: an id obtained from an earlier tree must be refused
+    /// rather than silently addressing a different entry.
+    #[test]
+    fn a_request_carrying_an_old_generation_is_refused() {
+        let state = AppState::default();
+        let old = state.set(one_node_tree("a"), live("/a")).unwrap();
+
+        // Still current: it works.
+        assert_eq!(
+            state.with_tree_at(old, |tree, _| Ok(tree.node(0).name.clone())).unwrap(),
+            "a"
+        );
+
+        // A new scan replaces the tree.
+        let new = state.set(one_node_tree("b"), live("/b")).unwrap();
+
+        let err = state.with_tree_at(old, |_, _| Ok(())).unwrap_err();
+        assert_eq!(err, STALE_GENERATION);
+
+        // And the current one still works, so the guard is not just refusing
+        // everything.
+        assert_eq!(
+            state.with_tree_at(new, |tree, _| Ok(tree.node(0).name.clone())).unwrap(),
+            "b"
+        );
+    }
+
+    #[test]
+    fn a_generation_from_the_future_is_also_refused() {
+        let state = AppState::default();
+        let current = state.set(one_node_tree("a"), live("/a")).unwrap();
+        assert_eq!(
+            state.with_tree_at(current + 1, |_, _| Ok(())).unwrap_err(),
+            STALE_GENERATION
+        );
+    }
+
+    #[test]
+    fn the_generation_guard_still_reports_nothing_open_first() {
+        // A stale-generation error would be misleading before anything is open.
+        let state = AppState::default();
+        let err = state.with_tree_at(1, |_, _| Ok(())).unwrap_err();
         assert!(err.contains("nothing is open"), "{err}");
     }
 }

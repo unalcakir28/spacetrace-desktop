@@ -6,7 +6,7 @@
 // tool that deletes the wrong thing is worse than no disk tool.
 
 import { useEffect, useState } from "react";
-import { api, errorMessage, type EntryView, type Opened } from "./api";
+import { api, errorMessage, isStale, type EntryView, type Opened } from "./api";
 import * as fmt from "./format";
 
 export interface InspectorProps {
@@ -32,17 +32,24 @@ export function Inspector({ opened, selected, onTrashed }: InspectorProps) {
       return;
     }
     let cancelled = false;
-    Promise.all([api.entry(selected), api.absolutePath(selected)])
+    const generation = opened.generation;
+    Promise.all([
+      api.entry(generation, selected),
+      api.absolutePath(generation, selected),
+    ])
       .then(([view, path]) => {
         if (cancelled) return;
         setEntry(view);
         setAbsolute(path);
       })
-      .catch((err) => !cancelled && setError(errorMessage(err)));
+      .catch((err) => {
+        if (cancelled || isStale(err)) return;
+        setError(errorMessage(err));
+      });
     return () => {
       cancelled = true;
     };
-  }, [selected]);
+  }, [opened.generation, selected]);
 
   if (!entry) {
     return (
@@ -128,7 +135,9 @@ export function Inspector({ opened, selected, onTrashed }: InspectorProps) {
         <button
           onClick={() => {
             setError(null);
-            api.reveal(entry.node).catch((err) => setError(errorMessage(err)));
+            api
+              .reveal(opened.generation, entry.node)
+              .catch((err) => setError(errorMessage(err)));
           }}
           disabled={!opened.canModify}
         >
@@ -164,7 +173,7 @@ export function Inspector({ opened, selected, onTrashed }: InspectorProps) {
                   setWorking(true);
                   setError(null);
                   api
-                    .moveToTrash(entry.node)
+                    .moveToTrash(opened.generation, entry.node)
                     .then(() => {
                       setConfirming(false);
                       onTrashed(entry);

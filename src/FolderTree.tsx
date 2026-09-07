@@ -4,8 +4,8 @@
 // a real disk has millions of nodes and this panel shows a few dozen at a time,
 // so loading it eagerly would be work nobody asked for.
 
-import { useCallback, useEffect, useState } from "react";
-import { api, errorMessage, type EntryView } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, errorMessage, isStale, type EntryView } from "./api";
 import * as fmt from "./format";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -25,47 +25,60 @@ const CATEGORY_COLORS: Record<string, string> = {
 const CHILD_LIMIT = 200;
 
 export interface FolderTreeProps {
+  /** Which tree these ids belong to. A change invalidates every cached child. */
+  generation: number;
   root: EntryView;
   selected: number | null;
   /** Node the treemap is currently rooted at, highlighted differently. */
   mapRoot: number;
   onSelect(node: number): void;
   onZoom(node: number): void;
-  /** Bumped by the caller when the tree has been reloaded underneath us. */
-  reloadKey?: number;
 }
 
 export function FolderTree({
+  generation,
   root,
   selected,
   mapRoot,
   onSelect,
   onZoom,
-  reloadKey,
 }: FolderTreeProps) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set([root.node]));
   const [childrenOf, setChildrenOf] = useState<Map<number, EntryView[]>>(new Map());
   const [loading, setLoading] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
+  // The generation a request was issued for. A response that does not match
+  // the current one is dropped: node ids are indices, so children fetched for
+  // an old tree would be filed under an unrelated entry in the new one — and
+  // because the cache is keyed by id, that wrong answer would then stick.
+  const activeGeneration = useRef(generation);
+
   // A new tree invalidates everything cached about the old one.
   useEffect(() => {
+    activeGeneration.current = generation;
     setExpanded(new Set([root.node]));
     setChildrenOf(new Map());
     setLoading(new Set());
     setError(null);
-  }, [root.node, reloadKey]);
+  }, [generation, root.node]);
 
   const load = useCallback(
     (node: number) => {
+      const issuedFor = generation;
       setLoading((prev) => new Set(prev).add(node));
       api
-        .children(node, CHILD_LIMIT)
+        .children(generation, node, CHILD_LIMIT)
         .then((kids) => {
+          if (activeGeneration.current !== issuedFor) return;
           setChildrenOf((prev) => new Map(prev).set(node, kids));
         })
-        .catch((err) => setError(errorMessage(err)))
+        .catch((err) => {
+          if (activeGeneration.current !== issuedFor || isStale(err)) return;
+          setError(errorMessage(err));
+        })
         .finally(() => {
+          if (activeGeneration.current !== issuedFor) return;
           setLoading((prev) => {
             const next = new Set(prev);
             next.delete(node);
@@ -73,15 +86,15 @@ export function FolderTree({
           });
         });
     },
-    [],
+    [generation],
   );
 
   useEffect(() => {
     if (!childrenOf.has(root.node) && !loading.has(root.node)) load(root.node);
-    // Only on mount and when the tree changes; `loading` deliberately excluded
-    // so a request in flight does not retrigger this.
+    // `loading` is deliberately excluded: including it would retrigger this
+    // while a request is in flight.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root.node, reloadKey, childrenOf, load]);
+  }, [generation, root.node, childrenOf, load]);
 
   const toggle = (node: EntryView) => {
     if (!node.isDir || node.childCount === 0) return;

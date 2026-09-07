@@ -1,7 +1,7 @@
 // Canvas renderer for the treemap.
 //
 // Layout comes from Rust as flat arrays in draw order, so drawing is one pass
-// over them with no tree walking here. Two things are deliberate:
+// over them with no tree walking here. Three things are deliberate:
 //
 // * Hit-testing runs in JavaScript rather than over the IPC bridge. The arrays
 //   are already local and a pointer move only has to scan the visible tiles, so
@@ -10,9 +10,15 @@
 // * Labels are fetched for the handful of tiles large enough to carry one.
 //   Sending every name with the layout would multiply the payload for text
 //   nobody can read.
+//
+// * Loaded tiles are stored together with the (root, generation) they were laid
+//   out for, and are only used when that still matches the current props. A node
+//   id is only an index, so tiles from a replaced tree would address entirely
+//   different entries — checking at read time rather than clearing on change
+//   means there is no window in which stale tiles can be clicked.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, CATEGORIES, errorMessage, type TileArrays } from "./api";
+import { api, CATEGORIES, errorMessage, isStale, type TileArrays } from "./api";
 import * as fmt from "./format";
 
 /** Must match the CSS custom properties; index matches `CATEGORIES`. */
@@ -34,14 +40,24 @@ const LABEL_MIN_WIDTH = 56;
 const LABEL_MIN_HEIGHT = 15;
 
 export interface TreemapProps {
+  /** Which tree `root` belongs to. Changing it invalidates every node id. */
+  generation: number;
   /** Node the map is rooted at. */
   root: number;
-  /** Bumped by the caller to force a fresh layout of the same root. */
-  reloadKey?: number;
   selected: number | null;
   onSelect(node: number): void;
   /** Called when a directory tile is activated, to zoom into it. */
   onZoom(node: number): void;
+}
+
+/** A layout, tagged with what it was laid out for. */
+interface Loaded {
+  generation: number;
+  root: number;
+  width: number;
+  height: number;
+  tiles: TileArrays;
+  labels: Map<number, string>;
 }
 
 interface Hover {
@@ -59,16 +75,22 @@ interface HoverDetail {
   isDir: boolean;
 }
 
-export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: TreemapProps) {
+export function Treemap({ generation, root, selected, onSelect, onZoom }: TreemapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [tiles, setTiles] = useState<TileArrays | null>(null);
-  const [labels, setLabels] = useState<Map<number, string>>(new Map());
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [detail, setDetail] = useState<HoverDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Only a layout matching the current props may be used for anything: drawing,
+  // hit-testing, labels. Anything else is from a tree that is no longer open.
+  const current =
+    loaded && loaded.generation === generation && loaded.root === root ? loaded : null;
+  const tiles = current?.tiles ?? null;
+  const labels = current?.labels ?? EMPTY_LABELS;
 
   // Track the drawing area. ResizeObserver rather than window resize: the
   // panels around the map can change width without the window moving.
@@ -84,22 +106,29 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
     return () => observer.disconnect();
   }, []);
 
-  // Re-layout whenever the root or the available space changes.
+  // Re-layout whenever the tree, the root or the available space changes.
   useEffect(() => {
     if (size.width < 40 || size.height < 40) return;
     let cancelled = false;
     setBusy(true);
     setError(null);
+    setHover(null);
 
+    const { width, height } = size;
     api
-      .treemap({ node: root, width: size.width, height: size.height })
+      .treemap({ generation, node: root, width, height })
       .then(async (result) => {
         if (cancelled) return;
-        setTiles(result);
-        setLabels(await fetchLabels(result));
+        const names = await fetchLabels(generation, result);
+        // Checked again: fetchLabels awaits, and a newer layout may have
+        // finished in the meantime. Without this the older response would
+        // overwrite the newer one's labels.
+        if (cancelled) return;
+        setLoaded({ generation, root, width, height, tiles: result, labels: names });
       })
       .catch((err) => {
-        if (!cancelled) setError(errorMessage(err));
+        if (cancelled || isStale(err)) return;
+        setError(errorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setBusy(false);
@@ -108,7 +137,7 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
     return () => {
       cancelled = true;
     };
-  }, [root, reloadKey, size.width, size.height]);
+  }, [generation, root, size.width, size.height]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -145,7 +174,7 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
       if (isDir) {
         // Directories are containers: a faint wash plus an outline, so their
         // children stay the thing you actually read.
-        ctx.fillStyle = depth === 0 ? "#0a0f14" : `rgba(43, 57, 71, ${0.20 + depth * 0.05})`;
+        ctx.fillStyle = depth === 0 ? "#0a0f14" : `rgba(43, 57, 71, ${0.2 + depth * 0.05})`;
         ctx.fillRect(x, y, w, h);
         if (w > 3 && h > 3) {
           ctx.strokeStyle = depth === 0 ? "#26333f" : "rgba(120, 145, 165, 0.22)";
@@ -192,21 +221,16 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
       const metrics = ctx.measureText(text);
       ctx.fillStyle = "rgba(7, 10, 14, 0.62)";
       ctx.fillRect(x + 2, y + 2, Math.min(metrics.width + 6, w - 4), 14);
-      ctx.fillStyle = isDir ? "#cfe0ea" : "#0b0f14";
-      if (!isDir) {
-        ctx.fillStyle = "#f2f7fa";
-      }
+      ctx.fillStyle = isDir ? "#cfe0ea" : "#f2f7fa";
       ctx.fillText(text, x + 5, y + 4);
     }
 
     // Selection and hover, drawn over everything.
     if (selected !== null) {
       const index = tiles.node.indexOf(selected);
-      if (index >= 0) {
-        outline(ctx, tiles, index, "#38bdaf", 2);
-      }
+      if (index >= 0) outline(ctx, tiles, index, "#38bdaf", 2);
     }
-    if (hover && hover.index >= 0 && tiles.node[hover.index] !== selected) {
+    if (hover && hover.index < tiles.count && tiles.node[hover.index] !== selected) {
       outline(ctx, tiles, hover.index, "rgba(219, 228, 236, 0.85)", 1.5);
     }
   }, [tiles, labels, size, selected, hover]);
@@ -223,9 +247,10 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
       return;
     }
     let cancelled = false;
+    const node = hover.node;
     const timer = window.setTimeout(() => {
       api
-        .entry(hover.node)
+        .entry(generation, node)
         .then((view) => {
           if (cancelled) return;
           setDetail({
@@ -244,7 +269,7 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hover]);
+  }, [generation, hover]);
 
   const locate = useCallback(
     (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -304,6 +329,10 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
     <div className="canvas-wrap" ref={wrapRef}>
       <canvas
         ref={canvasRef}
+        // While no matching layout is available there is nothing to click, and
+        // ignoring pointer events is what stops a stale map being interacted
+        // with during a transition.
+        style={tiles ? undefined : { pointerEvents: "none" }}
         onMouseMove={handleMove}
         onMouseLeave={() => setHover(null)}
         onClick={handleClick}
@@ -337,6 +366,9 @@ export function Treemap({ root, reloadKey, selected, onSelect, onZoom }: Treemap
     </div>
   );
 }
+
+/** Shared so an empty render does not allocate a Map every time. */
+const EMPTY_LABELS: Map<number, string> = new Map();
 
 /**
  * The deepest tile containing the point.
@@ -388,7 +420,10 @@ function clip(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): st
 }
 
 /** Names for the tiles big enough to be labelled, and only those. */
-async function fetchLabels(tiles: TileArrays): Promise<Map<number, string>> {
+async function fetchLabels(
+  generation: number,
+  tiles: TileArrays,
+): Promise<Map<number, string>> {
   const wanted: number[] = [];
   for (let i = 0; i < tiles.count; i += 1) {
     if (tiles.w[i]! >= LABEL_MIN_WIDTH && tiles.h[i]! >= LABEL_MIN_HEIGHT) {
@@ -396,8 +431,15 @@ async function fetchLabels(tiles: TileArrays): Promise<Map<number, string>> {
     }
   }
   if (wanted.length === 0) return new Map();
-  const names = await api.labels(wanted);
-  const map = new Map<number, string>();
-  wanted.forEach((node, index) => map.set(node, names[index] ?? ""));
-  return map;
+  try {
+    const names = await api.labels(generation, wanted);
+    const map = new Map<number, string>();
+    wanted.forEach((node, index) => map.set(node, names[index] ?? ""));
+    return map;
+  } catch (err) {
+    // Labels are decoration; a map without them is still usable, and a stale
+    // generation here just means a newer layout is already on its way.
+    if (!isStale(err)) console.warn("could not fetch tile labels", err);
+    return new Map();
+  }
 }

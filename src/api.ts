@@ -59,6 +59,10 @@ export type Source =
     };
 
 export interface Opened {
+  /// Which tree the node ids in this response belong to. Every later call that
+  /// names a node must pass it back, so an id from a replaced tree is refused
+  /// instead of silently addressing a different entry.
+  generation: number;
   source: Source;
   root: EntryView;
   totalSize: number;
@@ -168,6 +172,7 @@ export const api = {
   },
 
   treemap(req: {
+    generation: number;
     node: number;
     width: number;
     height: number;
@@ -177,6 +182,7 @@ export const api = {
   }): Promise<TileArrays> {
     return call("treemap", {
       req: {
+        generation: req.generation,
         node: req.node,
         width: req.width,
         height: req.height,
@@ -187,32 +193,32 @@ export const api = {
     });
   },
 
-  labels(nodes: number[]): Promise<string[]> {
-    return call("labels", { nodes });
+  labels(generation: number, nodes: number[]): Promise<string[]> {
+    return call("labels", { generation, nodes });
   },
 
-  entry(node: number): Promise<EntryView> {
-    return call("entry", { node });
+  entry(generation: number, node: number): Promise<EntryView> {
+    return call("entry", { generation, node });
   },
 
-  children(node: number, limit?: number): Promise<EntryView[]> {
-    return call("children", { node, limit: limit ?? null });
+  children(generation: number, node: number, limit?: number): Promise<EntryView[]> {
+    return call("children", { generation, node, limit: limit ?? null });
   },
 
-  ancestors(node: number): Promise<EntryView[]> {
-    return call("ancestors", { node });
+  ancestors(generation: number, node: number): Promise<EntryView[]> {
+    return call("ancestors", { generation, node });
   },
 
-  absolutePath(node: number): Promise<string> {
-    return call("absolute_path", { node });
+  absolutePath(generation: number, node: number): Promise<string> {
+    return call("absolute_path", { generation, node });
   },
 
-  reveal(node: number): Promise<void> {
-    return call("reveal", { node });
+  reveal(generation: number, node: number): Promise<void> {
+    return call("reveal", { generation, node });
   },
 
-  moveToTrash(node: number): Promise<void> {
-    return call("move_to_trash", { node });
+  moveToTrash(generation: number, node: number): Promise<void> {
+    return call("move_to_trash", { generation, node });
   },
 
   diffSnapshots(
@@ -244,9 +250,23 @@ export const api = {
   },
 };
 
+/** Must match `STALE_GENERATION` in src-tauri/src/lib.rs. */
+const STALE_GENERATION = "stale-generation";
+
+/**
+ * True when a request lost a race with a newly loaded tree.
+ *
+ * Expected during a transition, not a fault: the ids it carried belong to a
+ * tree that is no longer open. Callers should drop the result silently rather
+ * than showing an error the user cannot act on.
+ */
+export function isStale(err: unknown): boolean {
+  return typeof err === "string" && err === STALE_GENERATION;
+}
+
 /** Turn any thrown value into something showable. Tauri rejects with strings. */
 export function errorMessage(err: unknown): string {
-    if (typeof err === "string") return err;
-    if (err instanceof Error) return err.message;
-    return String(err);
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  return String(err);
 }
