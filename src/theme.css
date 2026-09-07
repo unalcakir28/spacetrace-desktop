@@ -1,0 +1,676 @@
+/* A dense, dark, technical surface. This is a tool people keep open next to a
+   terminal while a disk fills up, so it favours information density and legible
+   numbers over generous whitespace. */
+
+:root {
+  --bg: #0b0f14;
+  --panel: #111820;
+  --panel-raised: #16202a;
+  --border: #1e2933;
+  --border-strong: #2b3947;
+
+  --text: #dbe4ec;
+  --text-dim: #93a3b3;
+  --text-faint: #64748b;
+
+  --accent: #38bdaf;
+  --accent-dim: #1f6f68;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --grow: #f87171;
+  --shrink: #4ade80;
+
+  --cat-directory: #2b3947;
+  --cat-image: #a78bfa;
+  --cat-video: #f472b6;
+  --cat-audio: #fbbf24;
+  --cat-document: #60a5fa;
+  --cat-archive: #2dd4bf;
+  --cat-code: #a3e635;
+  --cat-binary: #94a3b8;
+  --cat-cache: #fb923c;
+  --cat-other: #64748b;
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
+    system-ui, sans-serif;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 var(--sans);
+  /* A disk analyser is a window, not a document: the page itself never scrolls. */
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Numbers line up in columns only if they are tabular. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #1d2836;
+  border-color: #3a4b5c;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #eafffb;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #26837a;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+  padding: 4px 7px;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+input,
+select {
+  font: inherit;
+  color: var(--text);
+  background: #0c1218;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 5px 8px;
+  user-select: text;
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #26333f;
+  border-radius: 5px;
+  border: 2px solid var(--panel);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #33434f;
+}
+
+/* ------------------------------------------------------------- app shell */
+
+.app {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100%;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar .spacer {
+  flex: 1;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-right: 6px;
+}
+
+.brand strong {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.brand span {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.source-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: #0d141b;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+  min-height: 33px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.badge.live {
+  color: #a7f3ec;
+  background: rgba(56, 189, 175, 0.12);
+  border-color: var(--accent-dim);
+}
+
+.badge.snapshot {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.12);
+  border-color: #3a4b5c;
+}
+
+.badge.remote {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.1);
+  border-color: #7c5e12;
+}
+
+.badge.warn {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.1);
+  border-color: #7f2d2d;
+}
+
+/* --------------------------------------------------------------- layout */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 300px 1fr 268px;
+  min-height: 0;
+}
+
+.workspace > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.inspector {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  font-weight: 600;
+  padding: 10px 12px 6px;
+}
+
+/* ------------------------------------------------------------ breadcrumbs */
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 2px;
+  padding: 6px 10px;
+  background: #0d141b;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.crumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.crumb {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.crumb:hover {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.crumb.current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.crumb-sep {
+  color: #35434f;
+  flex: none;
+}
+
+/* --------------------------------------------------------------- treemap */
+
+.map-area {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+
+.canvas-wrap {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: #070a0e;
+}
+
+.canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.map-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: var(--text-faint);
+  font-size: 12.5px;
+  text-align: center;
+  padding: 24px;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: rgba(9, 13, 18, 0.96);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 11.5px;
+  max-width: 380px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+}
+
+.tooltip .name {
+  font-family: var(--mono);
+  color: var(--text);
+  word-break: break-all;
+}
+
+.tooltip .meta {
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  padding: 7px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.legend .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------ tree panel */
+
+.tree-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 12px 3px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.tree-row:hover {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.tree-row.selected {
+  background: rgba(56, 189, 175, 0.13);
+  color: var(--text);
+}
+
+.tree-row .label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.tree-row .name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-row .size {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.tree-row.selected .size,
+.tree-row:hover .size {
+  color: var(--text-dim);
+}
+
+.twist {
+  width: 14px;
+  flex: none;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Share bar behind each row, so the panel reads as a chart too. */
+.share {
+  position: relative;
+}
+
+.share::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--share, 0%);
+  background: rgba(56, 189, 175, 0.09);
+  pointer-events: none;
+}
+
+/* -------------------------------------------------------------- inspector */
+
+.kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  font-size: 12px;
+  margin: 0 0 14px;
+}
+
+.kv dt {
+  color: var(--text-faint);
+}
+
+.kv dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+  user-select: text;
+}
+
+.inspector h3 {
+  font-size: 13px;
+  margin: 0 0 3px;
+  font-family: var(--mono);
+  word-break: break-all;
+  user-select: text;
+}
+
+.inspector .path {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  word-break: break-all;
+  margin-bottom: 12px;
+  user-select: text;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 7, 10, 0.7);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 24px;
+}
+
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  width: 100%;
+  max-width: 760px;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.dialog header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog header h2 {
+  font-size: 14px;
+  margin: 0;
+  flex: 1;
+}
+
+.dialog .body {
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.dialog footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 11px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 11px;
+}
+
+.field label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  font-weight: 600;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-strong);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #17202a;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+tbody tr:hover {
+  background: var(--panel-raised);
+}
+
+td.right,
+th.right {
+  text-align: right;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.error {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.09);
+  border: 1px solid #7f2d2d;
+  border-radius: 5px;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-bottom: 12px;
+  user-select: text;
+}
+
+.empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid #2b3947;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}

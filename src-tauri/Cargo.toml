@@ -1,0 +1,47 @@
+[package]
+name = "spacetrace-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "spacetrace desktop: see what is filling your disks, here and on your servers"
+publish = false
+
+[lib]
+name = "spacetrace_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The scanning core lives in the open-source repo; this app is a shell around
+# it (see docs/DECISIONS.md K2 there). Git rather than path so the two repos
+# stay genuinely independent.
+spacetrace-scan-core = { git = "https://github.com/unalcakir28/spacetrace" }
+spacetrace-store = { git = "https://github.com/unalcakir28/spacetrace" }
+spacetrace-diff = { git = "https://github.com/unalcakir28/spacetrace" }
+spacetrace-treemap = { git = "https://github.com/unalcakir28/spacetrace" }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+trash = "5"
+tempfile = "3"
+zstd = "0.14"
+# webpki-roots rather than the system trust store, so a self-hosted agent
+# behind a normal certificate works the same on every platform.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
