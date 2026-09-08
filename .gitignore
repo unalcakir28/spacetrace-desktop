@@ -5,3 +5,9 @@ src-tauri/target/
 src-tauri/gen/
 .DS_Store
 *.log
+
+# Claude Code working notes; the roadmap lives in the core repo.
+tasks/
+
+# Playwright cache directory
+.playwright-mcp/
