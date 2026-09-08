@@ -5,6 +5,7 @@
 // UI actually draws.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type Category =
   | "directory"
@@ -18,19 +19,7 @@ export type Category =
   | "cache"
   | "other";
 
-/** Must match the declaration order of `Category` in lib.rs. */
-export const CATEGORIES: readonly Category[] = [
-  "directory",
-  "image",
-  "video",
-  "audio",
-  "document",
-  "archive",
-  "code",
-  "binary",
-  "cache",
-  "other",
-];
+export { CATEGORIES } from "./categories";
 
 export interface EntryView {
   node: number;
@@ -44,6 +33,14 @@ export interface EntryView {
   mtime: number;
   childCount: number;
   category: Category;
+  /**
+   * What the entry mostly consists of; for a file, its own category.
+   *
+   * A folder list is almost all folders, and a folder has no file type of its
+   * own, so colouring rows by `category` gives every one of them the same
+   * colour. This is what the folder is full of.
+   */
+  dominant: Category;
 }
 
 export type Source =
@@ -58,6 +55,18 @@ export type Source =
       remote: string | null;
     };
 
+/**
+ * How full the filesystem is, as free out of total.
+ *
+ * Never shown as "percent full": where space is shared between volumes (APFS,
+ * btrfs, thin LVM) `total - available` counts the neighbours' usage too and
+ * contradicts `df` for the same mount.
+ */
+export interface Capacity {
+  total: number;
+  available: number;
+}
+
 export interface Opened {
   /// Which tree the node ids in this response belong to. Every later call that
   /// names a node must pass it back, so an id from a replaced tree is refused
@@ -71,6 +80,77 @@ export interface Opened {
   canModify: boolean;
   scanErrors: number;
   errorSamples: string[];
+  capacity: Capacity | null;
+}
+
+/** One report from a scan in flight. */
+export interface ScanTick {
+  scan: number;
+  files: number;
+  dirs: number;
+  bytes: number;
+  errors: number;
+  elapsedMs: number;
+  /** 0–1, or null when there is no honest denominator to divide by. */
+  fraction: number | null;
+  basis: "last_scan" | null;
+}
+
+export interface TrashedEntry {
+  node: number;
+  name: string;
+  parent: number;
+  size: number;
+  /** What actually left the filesystem, which is what a notice may claim. */
+  alloc: number;
+  files: number;
+}
+
+export interface TrashFailure {
+  node: number;
+  name: string;
+  reason: string;
+}
+
+/** What changed after a Trash operation. */
+export interface TrashOutcome {
+  /** Unchanged: the tree was edited in place, so held ids are still valid. */
+  generation: number;
+  trashed: TrashedEntry[];
+  /** Reported rather than rolled back: part of a selection can fail. */
+  failed: TrashFailure[];
+  /** Selected entries that went with a selected folder above them. */
+  redundant: number;
+  totalSize: number;
+  totalAlloc: number;
+  /** Every ancestor whose totals changed, root first, deduplicated. */
+  ancestors: EntryView[];
+}
+
+/** One report from a Trash operation in flight. */
+export interface TrashTick {
+  done: number;
+  total: number;
+  name: string;
+}
+
+export interface ScanTarget {
+  name: string;
+  path: string;
+  note: string;
+}
+
+export interface StartingPoints {
+  homeVolume: Capacity | null;
+  home: string | null;
+  targets: ScanTarget[];
+}
+
+/** What a save produced. */
+export interface SavedSnapshot {
+  scanId: number;
+  db: string;
+  label: string | null;
 }
 
 export interface ScanMeta {
@@ -150,8 +230,25 @@ export interface ScanRequest {
   noDedupe?: boolean;
 }
 
+/**
+ * Which of the two recorded measurements a view is built from.
+ *
+ * `EntryView` always carries both numbers, so figures and labels need no round
+ * trip. This is passed to the backend only where the answer is a *conclusion*
+ * rather than a number — how big a rectangle is, what order rows come in, what
+ * a folder is mostly full of — and it is a required argument on those calls so
+ * that a view cannot be assembled half from one measure and half from the other.
+ */
+export type SizeBasis = "logical" | "on_disk";
+
 export const api = {
-  scanDirectory(req: ScanRequest): Promise<Opened> {
+  /**
+   * The basis is a separate argument rather than part of `ScanRequest`, because
+   * the request is what the scan dialog collects and the basis is a way of
+   * reading the result. Required, so no caller can leave the first view of a
+   * scan built from the wrong measure.
+   */
+  scanDirectory(req: ScanRequest, basis: SizeBasis): Promise<Opened> {
     return call("scan_directory", {
       req: {
         path: req.path,
@@ -159,16 +256,26 @@ export const api = {
         one_file_system: req.oneFileSystem ?? false,
         depth: req.depth ?? null,
         no_dedupe: req.noDedupe ?? false,
+        basis,
       },
     });
+  },
+
+  /**
+   * Store the open scan. Refused for a snapshot, and for a tree that has had
+   * entries deleted — the backend holds those rules, because they are about
+   * what the data means rather than what the window is showing.
+   */
+  saveSnapshot(db: string, label: string | null): Promise<SavedSnapshot> {
+    return call("save_snapshot", { db, label });
   },
 
   listSnapshots(db: string): Promise<ScanMeta[]> {
     return call("list_snapshots", { db });
   },
 
-  openSnapshot(db: string, scanId: number): Promise<Opened> {
-    return call("open_snapshot", { db, scanId });
+  openSnapshot(db: string, scanId: number, basis: SizeBasis): Promise<Opened> {
+    return call("open_snapshot", { db, scanId, basis });
   },
 
   treemap(req: {
@@ -179,6 +286,7 @@ export const api = {
     minArea?: number;
     padding?: number;
     maxDepth?: number | null;
+    basis: SizeBasis;
   }): Promise<TileArrays> {
     return call("treemap", {
       req: {
@@ -189,6 +297,7 @@ export const api = {
         min_area: req.minArea ?? 6,
         padding: req.padding ?? 1,
         max_depth: req.maxDepth ?? null,
+        basis: req.basis,
       },
     });
   },
@@ -197,16 +306,26 @@ export const api = {
     return call("labels", { generation, nodes });
   },
 
-  entry(generation: number, node: number): Promise<EntryView> {
-    return call("entry", { generation, node });
+  entry(generation: number, node: number, basis: SizeBasis): Promise<EntryView> {
+    return call("entry", { generation, node, basis });
   },
 
-  children(generation: number, node: number, limit?: number): Promise<EntryView[]> {
-    return call("children", { generation, node, limit: limit ?? null });
+  /** One call for a whole selection. Ids that no longer exist are dropped. */
+  entries(generation: number, nodes: number[], basis: SizeBasis): Promise<EntryView[]> {
+    return call("entries", { generation, nodes, basis });
   },
 
-  ancestors(generation: number, node: number): Promise<EntryView[]> {
-    return call("ancestors", { generation, node });
+  children(
+    generation: number,
+    node: number,
+    basis: SizeBasis,
+    limit?: number,
+  ): Promise<EntryView[]> {
+    return call("children", { generation, node, limit: limit ?? null, basis });
+  },
+
+  ancestors(generation: number, node: number, basis: SizeBasis): Promise<EntryView[]> {
+    return call("ancestors", { generation, node, basis });
   },
 
   absolutePath(generation: number, node: number): Promise<string> {
@@ -217,8 +336,25 @@ export const api = {
     return call("reveal", { generation, node });
   },
 
-  moveToTrash(generation: number, node: number): Promise<void> {
-    return call("move_to_trash", { generation, node });
+  /** Takes a list, so one entry and a multiple selection are the same call. */
+  moveToTrash(
+    generation: number,
+    nodes: number[],
+    basis: SizeBasis,
+  ): Promise<TrashOutcome> {
+    return call("move_to_trash", { generation, nodes, basis });
+  },
+
+  cancelScan(): Promise<boolean> {
+    return call("cancel_scan");
+  },
+
+  refreshCapacity(generation: number): Promise<Capacity | null> {
+    return call("refresh_capacity", { generation });
+  },
+
+  startingPoints(): Promise<StartingPoints> {
+    return call("starting_points");
   },
 
   diffSnapshots(
@@ -241,8 +377,13 @@ export const api = {
     return call("remote_snapshots", { url, token });
   },
 
-  openRemoteSnapshot(url: string, token: string, scanId: number): Promise<Opened> {
-    return call("open_remote_snapshot", { url, token, scanId });
+  openRemoteSnapshot(
+    url: string,
+    token: string,
+    scanId: number,
+    basis: SizeBasis,
+  ): Promise<Opened> {
+    return call("open_remote_snapshot", { url, token, scanId, basis });
   },
 
   defaultDatabase(): Promise<string> {
@@ -250,8 +391,60 @@ export const api = {
   },
 };
 
+/**
+ * Subscribe to reports from whatever scan is running.
+ *
+ * Returns the unsubscribe function. Ticks arrive roughly eight times a second
+ * and carry the id of the scan they belong to, so a report from a scan that has
+ * been superseded can be dropped rather than fighting the current one for the
+ * progress bar.
+ */
+export function onScanProgress(handler: (tick: ScanTick) => void): () => void {
+  return subscribe("scan://progress", handler);
+}
+
+/** Subscribe to reports from a Trash operation. Returns the unsubscribe. */
+export function onTrashProgress(handler: (tick: TrashTick) => void): () => void {
+  return subscribe("trash://progress", handler);
+}
+
+/** Event names must match the `*_PROGRESS_EVENT` constants in lib.rs. */
+function subscribe<T>(event: string, handler: (payload: T) => void): () => void {
+  let stop: (() => void) | null = null;
+  let cancelled = false;
+
+  listen<Record<string, unknown>>(event, (received) => {
+    handler(camelize<T>(received.payload));
+  }).then((unlisten) => {
+    // The caller may have unsubscribed while `listen` was still resolving.
+    if (cancelled) {
+      unlisten();
+      return;
+    }
+    stop = unlisten;
+  });
+
+  return () => {
+    cancelled = true;
+    stop?.();
+  };
+}
+
 /** Must match `STALE_GENERATION` in src-tauri/src/lib.rs. */
 const STALE_GENERATION = "stale-generation";
+
+/** Must match `SCAN_CANCELLED` in src-tauri/src/lib.rs. */
+const SCAN_CANCELLED = "scan-cancelled";
+
+/**
+ * True when a scan ended because the user stopped it.
+ *
+ * Not a failure and not worth an error message: the user knows, having just
+ * clicked Stop. The window simply puts back whatever it was showing before.
+ */
+export function isCancelled(err: unknown): boolean {
+  return typeof err === "string" && err === SCAN_CANCELLED;
+}
 
 /**
  * True when a request lost a race with a newly loaded tree.

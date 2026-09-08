@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>spacetrace — design preview</title>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <!--
+      A design harness, not part of the app.
+
+      It stands the real UI up in a browser against a stubbed Tauri bridge, so
+      the layout, the palette and the progress and delete flows can be looked
+      at — and screenshotted — without building and launching the whole app.
+      Everything below fakes the Rust side only; the components under test are
+      the shipping ones.
+
+      Run: yarn dev, then open /design-preview.html
+      Scenarios: ?scene=welcome | scan | tree (default) | trash
+    -->
+    <script>
+      (() => {
+        const scene = new URLSearchParams(location.search).get("scene") || "tree";
+
+        const callbacks = new Map();
+        let nextCallback = 1;
+        const listeners = new Map();
+
+        const GiB = 1024 ** 3;
+        const MiB = 1024 ** 2;
+
+        // A tree shaped like a real project folder: a few big offenders and a
+        // long tail, which is what makes a treemap worth drawing.
+        const CATEGORY = {
+          directory: 0, image: 1, video: 2, audio: 3, document: 4,
+          archive: 5, code: 6, binary: 7, cache: 8, other: 9,
+        };
+        const nodes = [];
+        function add(parent, name, category, size, isDir, alloc) {
+          const node = {
+            node: nodes.length, name, relPath: "", isDir,
+            size, alloc: alloc === undefined ? size : alloc,
+            files: isDir ? 0 : 1, dirs: 0,
+            mtime: 1788000000 - nodes.length * 8000,
+            childCount: 0, category, parent,
+          };
+          nodes.push(node);
+          if (parent !== null) {
+            nodes[parent].childCount += 1;
+            node.relPath = nodes[parent].relPath
+              ? `${nodes[parent].relPath}/${name}`
+              : name;
+          }
+          return node.node;
+        }
+
+        const root = add(null, "Projects", "directory", 0, true);
+        const shape = [
+          ["node_modules", "directory", [
+            ["typescript", "code", 82 * MiB], ["@types", "code", 41 * MiB],
+            ["esbuild", "binary", 12 * MiB], ["react-dom", "code", 6 * MiB],
+            [".package-lock.json", "code", 2 * MiB],
+          ]],
+          ["target", "directory", [
+            ["debug", "directory", [
+              ["deps", "binary", 1900 * MiB], ["build", "binary", 420 * MiB],
+              ["incremental", "cache", 610 * MiB],
+            ]],
+            ["release", "binary", 240 * MiB],
+          ]],
+          ["vm", "directory", [
+            // Claims 1 TiB, holds 19 GiB: Docker.raw, near enough.
+            ["Docker.raw", "binary", { size: 1024 * GiB, alloc: 19 * GiB }],
+            ["config.json", "code", 12000],
+          ]],
+          ["media", "directory", [
+            ["screencast.mov", "video", 780 * MiB],
+            ["demo.mp4", "video", 310 * MiB],
+            ["cover.png", "image", 8 * MiB],
+            ["shot-01.png", "image", 4 * MiB],
+            ["theme.wav", "audio", 62 * MiB],
+          ]],
+          ["backups", "directory", [
+            ["2026-09-01.tar.zst", "archive", 640 * MiB],
+            ["2026-08-24.tar.zst", "archive", 590 * MiB],
+          ]],
+          ["logs", "directory", [
+            ["server.log", "cache", 240 * MiB], ["access.log", "cache", 96 * MiB],
+          ]],
+          ["docs", "directory", [
+            ["handbook.pdf", "document", 22 * MiB], ["notes.md", "document", 1 * MiB],
+          ]],
+          ["src", "directory", [
+            ["App.tsx", "code", 26000], ["theme.css", "code", 31000],
+            ["main.tsx", "code", 400],
+          ]],
+          ["Cargo.lock", "other", 56000],
+          ["README.md", "document", 8200],
+        ];
+
+        function build(parent, spec) {
+          for (const [name, category, payload] of spec) {
+            if (Array.isArray(payload)) {
+              const id = add(parent, name, category, 0, true);
+              build(id, payload);
+            } else if (typeof payload === "object") {
+              add(parent, name, category, payload.size, false, payload.alloc);
+            } else {
+              add(parent, name, category, payload, false);
+            }
+          }
+        }
+        build(root, shape);
+
+        // Roll totals up, the way the real aggregation does.
+        for (let i = nodes.length - 1; i > 0; i -= 1) {
+          const n = nodes[i];
+          const p = nodes[n.parent];
+          p.size += n.size;
+          p.alloc += n.alloc;
+          p.files += n.files;
+          p.dirs += n.dirs + (n.isDir ? 1 : 0);
+        }
+
+        const hidden = new Set();
+        // Mirrors `Node::measure`: the basis names one of the two fields.
+        const measure = (n, basis) => (basis === "on_disk" ? n.alloc : n.size);
+        const asBasis = (basis) => (basis === "on_disk" ? "on_disk" : "logical");
+
+        const kidsOf = (id, basis) =>
+          nodes
+            .filter((n) => n.parent === id && !hidden.has(n.node))
+            .sort((a, b) => measure(b, basis) - measure(a, basis));
+
+        const view = (n, basis) => ({
+          node: n.node, name: n.name, rel_path: n.relPath, is_dir: n.isDir,
+          size: n.size, alloc: n.alloc, files: n.files, dirs: n.dirs,
+          mtime: n.mtime, child_count: n.childCount, category: n.category,
+          dominant: dominantOf(n.node, basis),
+        });
+
+        // Mirrors `dominant` in lib.rs: follow the largest child to a file,
+        // measured the same way the caller is measuring everything else.
+        function dominantOf(id, basis) {
+          let current = id;
+          for (;;) {
+            const n = nodes[current];
+            if (!n.isDir) return n.category;
+            const kids = nodes.filter((k) => k.parent === current);
+            let biggest = null;
+            for (const kid of kids) {
+              if (!biggest || measure(kid, basis) > measure(biggest, basis)) biggest = kid;
+            }
+            if (!biggest || measure(biggest, basis) === 0) return "directory";
+            current = biggest.node;
+          }
+        }
+
+        const capacity = { total: 994 * GiB, available: 61 * GiB };
+
+        const openedPayload = (basis = "on_disk") => ({
+          generation: 1,
+          source: { kind: "live", root: "/Users/you/Projects" },
+          root: view(nodes[root], asBasis(basis)),
+          total_size: nodes[root].size,
+          total_alloc: nodes[root].alloc,
+          entries: nodes.length,
+          can_modify: true,
+          scan_errors: 3,
+          error_samples: ["/Users/you/Projects/.secret — permission denied"],
+          capacity,
+        });
+
+        // A squarified layout, enough to look like the real one.
+        function layout(id, rect, depth, out, parentIndex, basis) {
+          const index = out.length;
+          out.push({ node: id, rect, depth, isDir: nodes[id].isDir, parent: parentIndex });
+          const kids = kidsOf(id, basis).filter((k) => measure(k, basis) > 0);
+          if (!kids.length || rect.w < 6 || rect.h < 6 || depth > 4) return;
+          const total = kids.reduce((s, k) => s + measure(k, basis), 0);
+          if (total <= 0) return;
+          const pad = depth === 0 ? 0 : 2;
+          let box = {
+            x: rect.x + pad, y: rect.y + pad,
+            w: rect.w - pad * 2, h: rect.h - pad * 2,
+          };
+          for (const kid of kids) {
+            const fraction = measure(kid, basis) / total;
+            const horizontal = box.w >= box.h;
+            const slice = horizontal ? box.w * fraction : box.h * fraction;
+            const cell = horizontal
+              ? { x: box.x, y: box.y, w: slice, h: box.h }
+              : { x: box.x, y: box.y, w: box.w, h: slice };
+            if (cell.w > 1 && cell.h > 1) {
+              layout(kid.node, cell, depth + 1, out, index, basis);
+            }
+            if (horizontal) { box.x += slice; box.w -= slice; }
+            else { box.y += slice; box.h -= slice; }
+          }
+        }
+
+        function tiles(node, width, height, basis) {
+          const out = [];
+          layout(node, { x: 0, y: 0, w: width, h: height }, 0, out, -1, basis);
+          const arrays = {
+            node: [], x: [], y: [], w: [], h: [], depth: [],
+            is_dir: [], truncated: [], category: [], parent: [], count: out.length,
+          };
+          for (const tile of out) {
+            arrays.node.push(tile.node);
+            arrays.x.push(tile.rect.x);
+            arrays.y.push(tile.rect.y);
+            arrays.w.push(tile.rect.w);
+            arrays.h.push(tile.rect.h);
+            arrays.depth.push(tile.depth);
+            arrays.is_dir.push(tile.isDir);
+            arrays.truncated.push(tile.depth === 4 && nodes[tile.node].childCount > 0);
+            arrays.category.push(CATEGORY[nodes[tile.node].category]);
+            arrays.parent.push(tile.parent);
+          }
+          return arrays;
+        }
+
+        function ancestors(id, basis) {
+          const chain = [];
+          let cur = id;
+          for (;;) {
+            chain.push(view(nodes[cur], basis));
+            if (nodes[cur].parent === null) break;
+            cur = nodes[cur].parent;
+          }
+          return chain.reverse();
+        }
+
+        // Starts empty, the way a fresh install does — the state the question
+        // "how do I save one?" comes from.
+        const stored = [];
+
+        let scanning = false;
+        function fakeScan(basis) {
+          scanning = true;
+          const expected = scene === "scan" ? nodes.length * 40 : null;
+          let seen = 0;
+          const started = Date.now();
+          const handle = setInterval(() => {
+            if (!scanning) return clearInterval(handle);
+            seen += 260;
+            emit("scan://progress", {
+              scan: 1,
+              files: Math.round(seen * 0.86),
+              dirs: Math.round(seen * 0.14),
+              bytes: seen * 190000,
+              errors: seen > 3000 ? 3 : 0,
+              elapsed_ms: Date.now() - started,
+              fraction: expected ? Math.min(seen / expected, 0.99) : null,
+              basis: expected ? "last_scan" : null,
+            });
+          }, 110);
+          // Long enough to look at; the "scan" scene never finishes on purpose.
+          const holds = scene === "scan" ? 3_600_000 : 1400;
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              scanning = false;
+              clearInterval(handle);
+              resolve(openedPayload(basis));
+            }, holds);
+          });
+        }
+
+        function emit(event, payload) {
+          const handler = listeners.get(event);
+          if (handler) handler({ event, id: 0, payload });
+        }
+
+        const commands = {
+          starting_points: () => ({
+            home_volume: capacity,
+            home: "/Users/you",
+            targets: [
+              { name: "Home", path: "/Users/you", note: "everything belonging to you" },
+              { name: "Downloads", path: "/Users/you/Downloads", note: "usually the quickest win" },
+              { name: "Desktop", path: "/Users/you/Desktop", note: "" },
+              { name: "Documents", path: "/Users/you/Documents", note: "" },
+              { name: "Caches", path: "/Users/you/Library/Caches", note: "rebuilt by apps as they need it" },
+              { name: "iOS backups", path: "/Users/you/Library/Application Support/MobileSync/Backup", note: "often tens of gigabytes" },
+            ],
+          }),
+          scan_directory: ({ req }) => fakeScan(req && req.basis),
+          cancel_scan: () => { scanning = false; return true; },
+          refresh_capacity: () => capacity,
+          default_database: () => "/Users/you/Library/Application Support/spacetrace/snapshots.sqlite",
+          list_snapshots: () => stored,
+          save_snapshot: ({ db, label }) => {
+            const clean = (label || "").trim();
+            const id = stored.length + 1;
+            stored.push({
+              id, host: "this-mac", root: "/Users/you/Projects",
+              started_at: Math.floor(Date.now() / 1000), duration_ms: 4200,
+              total_size: nodes[root].size, total_alloc: nodes[root].alloc,
+              files: nodes[root].files, dirs: nodes[root].dirs, errors: 3,
+              hardlinks_deduped: 0, scanner_version: "0.1.0",
+              label: clean || null,
+            });
+            return { scan_id: id, db, label: clean || null };
+          },
+          ancestors: ({ node, basis }) => ancestors(node, asBasis(basis)),
+          children: ({ node, basis }) =>
+            kidsOf(node, asBasis(basis)).map((n) => view(n, asBasis(basis))),
+          entry: ({ node, basis }) => view(nodes[node], asBasis(basis)),
+          entries: ({ nodes: wanted, basis }) =>
+            wanted
+              .filter((id) => !hidden.has(id))
+              .map((id) => view(nodes[id], asBasis(basis))),
+          absolute_path: ({ node }) => `/Users/you/Projects/${nodes[node].relPath}`,
+          labels: ({ nodes: wanted }) => wanted.map((id) => nodes[id].name),
+          treemap: ({ req }) =>
+            tiles(req.node, req.width, req.height, asBasis(req.basis)),
+          reveal: () => null,
+          move_to_trash: ({ nodes: wanted, basis }) => {
+            const selected = new Set(wanted);
+            const strictAncestorSelected = (id) => {
+              let cur = nodes[id].parent;
+              while (cur !== null && cur !== undefined) {
+                if (selected.has(cur)) return true;
+                cur = nodes[cur].parent;
+              }
+              return false;
+            };
+
+            const trashed = [];
+            const touched = [];
+            let redundant = 0;
+            const targets = wanted
+              .filter((id) => {
+                if (hidden.has(id) || strictAncestorSelected(id)) { redundant += 1; return false; }
+                return id !== root;
+              })
+              .sort((a, b) => nodes[b].alloc - nodes[a].alloc);
+
+            for (const id of targets) {
+              const target = nodes[id];
+              const gone = [];
+              const walk = (n) => { gone.push(n); for (const kid of nodes.filter((k) => k.parent === n)) walk(kid.node); };
+              walk(id);
+              const removed = {
+                size: target.size, alloc: target.alloc, files: target.files,
+              };
+              let cur = target.parent;
+              while (cur !== null && cur !== undefined) {
+                nodes[cur].size -= removed.size;
+                nodes[cur].alloc -= removed.alloc;
+                nodes[cur].files -= removed.files;
+                cur = nodes[cur].parent;
+              }
+              for (const n of gone) { nodes[n].size = 0; nodes[n].alloc = 0; }
+              hidden.add(id);
+              touched.push(target.parent);
+              trashed.push({
+                node: id, name: target.name, parent: target.parent,
+                size: removed.size, alloc: removed.alloc, files: removed.files,
+              });
+              emit("trash://progress", {
+                done: trashed.length, total: targets.length, name: target.name,
+              });
+            }
+
+            const seen = new Set();
+            const chains = [];
+            for (const t of touched) {
+              for (const view_ of ancestors(t, asBasis(basis))) {
+                if (!seen.has(view_.node)) { seen.add(view_.node); chains.push(view_); }
+              }
+            }
+            chains.sort((a, b) => a.node - b.node);
+
+            return {
+              generation: 1, trashed, failed: [], redundant,
+              total_size: nodes[root].size, total_alloc: nodes[root].alloc,
+              ancestors: chains,
+            };
+          },
+        };
+
+        // The event plugin keeps its own global, separate from the invoke
+        // bridge; `unlisten` reads it directly. React's strict mode
+        // double-mount exercises that path on every load.
+        window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+          unregisterListener(event) {
+            listeners.delete(event);
+          },
+        };
+
+        window.__TAURI_INTERNALS__ = {
+          transformCallback(callback) {
+            const id = nextCallback++;
+            callbacks.set(id, callback);
+            return id;
+          },
+          async invoke(command, args) {
+            if (command === "plugin:event|listen") {
+              listeners.set(args.event, callbacks.get(args.handler));
+              return 1;
+            }
+            if (command === "plugin:event|unlisten") return null;
+            const handler = commands[command];
+            if (!handler) throw `design preview has no stub for ${command}`;
+            return handler(args ?? {});
+          },
+        };
+
+        // Scenes other than "welcome" open with the tree already loaded, which
+        // is the state the window spends nearly all of its time in.
+        if (scene !== "welcome") {
+          window.addEventListener("DOMContentLoaded", () => {
+            setTimeout(() => {
+              const start = [...document.querySelectorAll("button")].find((b) =>
+                b.textContent?.includes("Home"),
+              );
+              start?.click();
+            }, 60);
+          });
+        }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

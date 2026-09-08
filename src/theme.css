@@ -1,40 +1,78 @@
-/* A dense, dark, technical surface. This is a tool people keep open next to a
-   terminal while a disk fills up, so it favours information density and legible
-   numbers over generous whitespace. */
+/* A dense, dark, technical surface — but a coloured one.
+   ---------------------------------------------------------------------------
+   Colour here is the data, not decoration. The treemap is a map, and on a map
+   of land cover the colours *are* the reading: forest, water, built-up. The
+   same is true of these nine file categories, which is why the palette is
+   saturated across the whole window rather than reserved for a legend: a
+   category has one colour in the map, in the folder list and in the inspector,
+   and that consistency is what makes the colour worth having.
+
+   Two consequences worth knowing before changing anything here:
+
+   * Nine categories means nine hues, spread evenly around the wheel rather
+     than picked one at a time. The previous palette left `binary` and `other`
+     as two greys, and `other` is the commonest bucket there is — which is most
+     of why the app read as colourless.
+
+   * **Selection and hover spend no hue.** Every hue is taken by data, so
+     picking one for "this is selected" would make the indicator collide with
+     whatever category shares it. Selection is an achromatic bright outline
+     instead, and the interface accent below never appears inside the map. */
 
 :root {
-  --bg: #0b0f14;
-  --panel: #111820;
-  --panel-raised: #16202a;
-  --border: #1e2933;
-  --border-strong: #2b3947;
+  /* Ground. Deep ink with an indigo cast: the old palette was three shades of
+     the same blue-grey, so a panel never read as a surface. */
+  --void: #080b14;
+  --bg: #0d1120;
+  --panel: #141a2c;
+  --panel-raised: #1c2340;
+  --panel-high: #262e4f;
+  --border: #232b45;
+  --border-strong: #3a4468;
 
-  --text: #dbe4ec;
-  --text-dim: #93a3b3;
-  --text-faint: #64748b;
+  --text: #eaeefb;
+  --text-dim: #a7b1d0;
+  --text-faint: #737e9f;
 
-  --accent: #38bdaf;
-  --accent-dim: #1f6f68;
-  --danger: #f87171;
-  --warn: #fbbf24;
-  --grow: #f87171;
-  --shrink: #4ade80;
+  /* Interface accent: buttons, focus, the active branch of the folder tree.
+     Deliberately absent from the map. */
+  --accent: #8b9bff;
+  --accent-bright: #b8c1ff;
+  --accent-deep: #2e3670;
 
-  --cat-directory: #2b3947;
-  --cat-image: #a78bfa;
-  --cat-video: #f472b6;
-  --cat-audio: #fbbf24;
-  --cat-document: #60a5fa;
-  --cat-archive: #2dd4bf;
-  --cat-code: #a3e635;
-  --cat-binary: #94a3b8;
-  --cat-cache: #fb923c;
-  --cat-other: #64748b;
+  /* The language of a filling disk. Growing is the bad direction here, so
+     growth is warm and shrinking is cool — the opposite of a share price. */
+  --hot: #ffb454;
+  --alarm: #ff6b6b;
+  --grow: #ff8080;
+  --shrink: #5ee0a0;
+
+  /* Categories. `directory` is structural rather than a category, so it gets a
+     surface tone instead of a hue. */
+  --cat-directory: #46527d;
+  --cat-audio: #f5d06a;
+  --cat-binary: #f59d5a;
+  --cat-cache: #f4707f;
+  --cat-image: #e97fc9;
+  --cat-video: #a98cf0;
+  --cat-other: #6f7ba3;
+  --cat-document: #58b4e8;
+  --cat-archive: #45d3ba;
+  --cat-code: #7bd88f;
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
     system-ui, sans-serif;
+
+  /* One radius per role rather than one radius for everything: a control, a
+     surface and a chip are different kinds of thing. */
+  --r-control: 6px;
+  --r-surface: 10px;
+  --r-chip: 3px;
+
+  --row: 23px;
+  --rail: 15px;
 
   color-scheme: dark;
 }
@@ -57,6 +95,7 @@ body {
   /* A disk analyser is a window, not a document: the page itself never scrolls. */
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -66,34 +105,43 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ------------------------------------------------------------------ controls */
+
 button {
   font: inherit;
   color: var(--text);
   background: var(--panel-raised);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-control);
   padding: 5px 11px;
   cursor: pointer;
+  transition: background 90ms ease, border-color 90ms ease;
 }
 
 button:hover:not(:disabled) {
-  background: #1d2836;
-  border-color: #3a4b5c;
+  background: var(--panel-high);
+  border-color: var(--accent-deep);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
 
 button.primary {
-  background: var(--accent-dim);
+  background: var(--accent-deep);
   border-color: var(--accent);
-  color: #eafffb;
+  color: var(--accent-bright);
+  font-weight: 500;
 }
 
 button.primary:hover:not(:disabled) {
-  background: #26837a;
+  background: #3c478c;
+  color: #fff;
 }
 
 button.ghost {
@@ -106,22 +154,40 @@ button.ghost {
 button.ghost:hover:not(:disabled) {
   background: var(--panel-raised);
   color: var(--text);
+  border-color: transparent;
+}
+
+button.danger {
+  border-color: #7a3050;
+  color: #ffb3c4;
+  background: rgba(244, 112, 127, 0.08);
+}
+
+button.danger:hover:not(:disabled) {
+  background: rgba(244, 112, 127, 0.16);
+  border-color: var(--cat-cache);
 }
 
 input,
 select {
   font: inherit;
   color: var(--text);
-  background: #0c1218;
+  background: #0a0e1a;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-control);
   padding: 5px 8px;
+  -webkit-user-select: text;
   user-select: text;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 
 input:focus,
 select:focus,
-button:focus-visible {
+button:focus-visible,
+[tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -136,20 +202,20 @@ button:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #26333f;
+  background: #2c3559;
   border-radius: 5px;
   border: 2px solid var(--panel);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #33434f;
+  background: #3c477a;
 }
 
-/* ------------------------------------------------------------- app shell */
+/* ----------------------------------------------------------------- app shell */
 
 .app {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   height: 100%;
 }
 
@@ -188,7 +254,7 @@ button:focus-visible {
   align-items: center;
   gap: 10px;
   padding: 6px 12px;
-  background: #0d141b;
+  background: #0b0f1c;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-dim);
@@ -200,41 +266,248 @@ button:focus-visible {
   align-items: center;
   gap: 5px;
   padding: 1px 7px;
-  border-radius: 3px;
+  border-radius: var(--r-chip);
   font-size: 11px;
   font-weight: 500;
   border: 1px solid transparent;
+  flex: none;
 }
 
 .badge.live {
-  color: #a7f3ec;
-  background: rgba(56, 189, 175, 0.12);
-  border-color: var(--accent-dim);
+  color: #c9f7e2;
+  background: rgba(94, 224, 160, 0.13);
+  border-color: #2c6b52;
+}
+
+.badge.live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--shrink);
 }
 
 .badge.snapshot {
-  color: #cbd5e1;
-  background: rgba(148, 163, 184, 0.12);
-  border-color: #3a4b5c;
+  color: var(--text-dim);
+  background: rgba(139, 155, 255, 0.1);
+  border-color: var(--accent-deep);
 }
 
 .badge.remote {
-  color: #fde68a;
-  background: rgba(251, 191, 36, 0.1);
-  border-color: #7c5e12;
+  color: #ffddab;
+  background: rgba(255, 180, 84, 0.1);
+  border-color: #7a5a20;
 }
 
 .badge.warn {
-  color: #fecaca;
-  background: rgba(248, 113, 113, 0.1);
-  border-color: #7f2d2d;
+  color: #ffc9c9;
+  background: rgba(255, 107, 107, 0.1);
+  border-color: #7a3232;
 }
 
-/* --------------------------------------------------------------- layout */
+/* --------------------------------------------------------- capacity readout */
 
+/* Free out of total, never "percent full": on APFS, btrfs and thin LVM space
+   is shared between volumes, so `total - free` counts what the siblings are
+   using and disagrees with `df` for the same mount. */
+/* The measure everything is drawn from. A segmented control rather than a
+   toggle: both options are real answers, so neither can be the unchecked
+   state of the other. It spends no category hue — the accent marks the choice,
+   the way selection does. */
+.basis {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.basis button {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.basis button + button {
+  border-left: 1px solid var(--border);
+}
+
+.basis button:hover:not(:disabled) {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.basis button.on {
+  background: var(--panel-high);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.basis button:disabled {
+  opacity: 0.5;
+}
+
+/* A file whose two figures are far apart. Achromatic on purpose: every hue in
+   this window belongs to a file category, so a marker with a hue of its own
+   would read as one. */
+.sparse-mark {
+  margin-left: 3px;
+  color: var(--text-faint);
+  font-style: normal;
+  cursor: help;
+}
+
+.capacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px 3px 8px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.capacity .meter {
+  position: relative;
+  width: 92px;
+  height: 7px;
+  border-radius: 4px;
+  background: #0a0e1a;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.capacity .meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  border-radius: 4px 0 0 4px;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
+.capacity.tight .meter i {
+  background: var(--hot);
+}
+
+.capacity.critical .meter i {
+  background: var(--alarm);
+}
+
+.capacity b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------ progress */
+
+/* Always a strip, never a curtain. Whatever was on screen stays on screen and
+   stays usable while the work runs; the one thing that changes is that this
+   appears and tells the truth about what is happening. */
+.progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 7px 12px 8px;
+  background: var(--panel-raised);
+  border-bottom: 1px solid var(--accent-deep);
+}
+
+.progress .track {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: #0a0e1a;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.progress .track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 140ms linear;
+}
+
+/* No denominator, so the bar reports motion rather than position. */
+.progress .track.unknown i {
+  width: 34%;
+  animation: sweep 1.5s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+
+.progress .what {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.progress .pct {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent-bright);
+  min-width: 3.4em;
+}
+
+.progress .doing {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress .counters {
+  display: flex;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.progress .counters span {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress .basis {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------------- layout */
+
+/* Widths come from the window, because how wide a folder list needs to be
+   depends on how deep the folders someone is looking at go — which the app
+   cannot know. See Resizer.tsx. */
 .workspace {
   display: grid;
-  grid-template-columns: 300px 1fr 268px;
+  grid-template-columns:
+    var(--w-sidebar, 320px) 5px 1fr 5px var(--w-inspector, 276px);
   min-height: 0;
 }
 
@@ -245,28 +518,150 @@ button:focus-visible {
 
 .sidebar {
   background: var(--panel);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- resizers */
+
+.resizer {
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  /* The visible line is one pixel; the grab area is the whole 5px column plus
+     a couple either side, because a one-pixel target is a bad target. */
+  box-shadow: inset 2px 0 0 var(--panel), inset -2px 0 0 var(--panel);
+}
+
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.resizer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+/* Scrolls both ways. Sideways is the escape hatch for a deep tree: the rows
+   grow past the panel rather than crushing the names, and the figures column
+   is sticky so it never leaves. */
+.sidebar .rows {
+  overflow: auto;
+  padding-bottom: 10px;
+}
+
+.tree-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-raised);
+  font-size: 11.5px;
+  color: var(--accent-bright);
 }
 
 .inspector {
   background: var(--panel);
-  border-left: 1px solid var(--border);
   overflow-y: auto;
   padding: 12px;
 }
 
+/* ------------------------------------------------------------ context menu */
+
+.menu-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.menu {
+  position: fixed;
+  z-index: 71;
+  min-width: 208px;
+  padding: 4px;
+  background: var(--panel-high);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  outline: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 5px 9px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Highlighted by keyboard as well as by pointer, so the two agree. */
+.menu-item.active:not(:disabled) {
+  background: var(--accent-deep);
+  border-color: transparent;
+}
+
+.menu-item:disabled {
+  opacity: 0.38;
+}
+
+.menu-item.danger {
+  color: #ffb3c4;
+}
+
+.menu-item.danger.active:not(:disabled) {
+  background: rgba(244, 112, 127, 0.22);
+}
+
+/* A rule above, so the destructive action is not adjacent to a harmless one. */
+.menu-item.separated {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  border-radius: 0 0 4px 4px;
+}
+
+.menu-item em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.menu-item.active em {
+  color: var(--text-dim);
+}
+
+/* Sentence case, weighted. Tracked-out capitals are a habit, not a hierarchy:
+   they slow reading down and every label ends up shouting equally. */
 .panel-title {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  font-size: 11.5px;
   color: var(--text-faint);
   font-weight: 600;
   padding: 10px 12px 6px;
 }
 
-/* ------------------------------------------------------------ breadcrumbs */
+/* --------------------------------------------------------------- breadcrumbs */
 
 .crumbs {
   display: flex;
@@ -275,7 +670,7 @@ button:focus-visible {
   overflow-x: auto;
   gap: 2px;
   padding: 6px 10px;
-  background: #0d141b;
+  background: #0b0f1c;
   border-bottom: 1px solid var(--border);
   scrollbar-width: none;
 }
@@ -289,8 +684,8 @@ button:focus-visible {
   background: none;
   border: none;
   color: var(--text-dim);
-  padding: 3px 6px;
-  border-radius: 4px;
+  padding: 3px 7px;
+  border-radius: var(--r-chip);
   cursor: pointer;
   font-family: var(--mono);
   font-size: 11.5px;
@@ -300,19 +695,21 @@ button:focus-visible {
 .crumb:hover {
   background: var(--panel-raised);
   color: var(--text);
+  border-color: transparent;
 }
 
 .crumb.current {
-  color: var(--text);
+  color: var(--accent-bright);
+  background: rgba(139, 155, 255, 0.1);
   font-weight: 600;
 }
 
 .crumb-sep {
-  color: #35434f;
+  color: #3c4670;
   flex: none;
 }
 
-/* --------------------------------------------------------------- treemap */
+/* ------------------------------------------------------------------ treemap */
 
 .map-area {
   position: relative;
@@ -325,7 +722,7 @@ button:focus-visible {
   position: relative;
   min-height: 0;
   overflow: hidden;
-  background: #070a0e;
+  background: var(--void);
 }
 
 .canvas-wrap canvas {
@@ -351,13 +748,13 @@ button:focus-visible {
   position: absolute;
   z-index: 5;
   pointer-events: none;
-  background: rgba(9, 13, 18, 0.96);
+  background: rgba(10, 14, 26, 0.97);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--r-control);
   padding: 7px 9px;
   font-size: 11.5px;
   max-width: 380px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
 }
 
 .tooltip .name {
@@ -369,11 +766,15 @@ button:focus-visible {
 .tooltip .meta {
   color: var(--text-dim);
   margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 3px 12px;
   padding: 7px 12px;
   background: var(--panel);
@@ -392,48 +793,217 @@ button:focus-visible {
   width: 9px;
   height: 9px;
   border-radius: 2px;
+  flex: none;
 }
 
-/* ------------------------------------------------------------ tree panel */
+/* --------------------------------------------------------------- tree panel */
 
-.tree-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
+/* Where you are, kept in view while the list scrolls under it. */
+.tree-here {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 3px 12px 3px 0;
-  background: none;
+  gap: 7px;
+  padding: 9px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  /* A left edge in the accent, matching the lit rail below it: the header and
+     the branch it names are one statement about where you are. */
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--panel-raised);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  min-width: 0;
+}
+
+.tree-here .path {
+  font-family: var(--mono);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Rows are as wide as their content and never narrower than the panel, so a
+   deep name pushes the row out and the panel scrolls sideways instead of
+   grinding the name down to an ellipsis. */
+.tree-row {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: var(--row);
+  padding: 0;
+  /* Opaque, not transparent: the figures column is sticky and has to mask the
+     names scrolling underneath it. `background: none` would let them show
+     through. */
+  background: var(--panel);
   border: none;
   border-radius: 0;
   cursor: pointer;
   text-align: left;
   color: var(--text-dim);
+  position: relative;
 }
 
+/* Every row state stays opaque for the same reason, so these are blended
+   values rather than the tint over a transparency. */
 .tree-row:hover {
   background: var(--panel-raised);
   color: var(--text);
 }
 
 .tree-row.selected {
-  background: rgba(56, 189, 175, 0.13);
+  background: #262d4c;
   color: var(--text);
 }
 
-.tree-row .label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
+.tree-row.selected:hover {
+  background: #2e3659;
 }
 
+/* The folder the map is rooted at: the one row that answers "where am I". */
+.tree-row.at {
+  background: #1f263f;
+}
+
+.tree-row.at.selected {
+  background: #262d4c;
+}
+
+.tree-row.at .name {
+  color: var(--accent-bright);
+  font-weight: 600;
+}
+
+/* Indent guides. Nesting drawn rather than implied by whitespace: past two
+   levels of plain padding nobody can tell what sits under what. */
+.rails {
+  display: flex;
+  flex: none;
+}
+
+.rail {
+  width: var(--rail);
+  flex: none;
+  border-left: 1px solid #333d5e;
+  margin-left: 1px;
+}
+
+/* The branch leading to where you are, so the path down to it is visible from
+   anywhere in the list. Brighter and thicker, because this is the one piece of
+   the list that answers "which folder am I in". */
+.rail.on {
+  border-left: 2px solid var(--accent);
+  margin-left: 0;
+}
+
+.tree-row .twist {
+  width: 15px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.tree-row:hover .twist {
+  color: var(--text-dim);
+}
+
+.tree-row .glyph {
+  width: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.tree-row .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+/* A folder silhouette, drawn rather than typed: the unicode folder characters
+   render inconsistently across the three webviews this ships on, and at 10px
+   the ones that do render read as a dash. The tab on top is what separates it
+   from a file's square at a glance. */
+.tree-row .folder {
+  position: relative;
+  width: 10px;
+  height: 8px;
+  border-radius: 1px 2px 2px 2px;
+  opacity: 0.85;
+}
+
+.tree-row .folder::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -2.5px;
+  width: 5px;
+  height: 2.5px;
+  border-radius: 1px 1px 0 0;
+  background: inherit;
+}
+
+/* An open folder is the lighter of the two, so the closed ones read as the
+   solid mass they represent. */
+.tree-row .folder.open {
+  opacity: 0.45;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* The figures, pinned to the right edge of the panel.
+
+   Sticky rather than in the flow, because the panel scrolls sideways for deep
+   names and the size is the second thing anyone reads. It inherits the row's
+   background so the names pass behind it rather than through it. */
+.tree-row .figures {
+  position: sticky;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  margin-left: auto;
+  padding: 0 10px 0 12px;
+  background: inherit;
+}
+
+/* A column of bars sharing one baseline, rather than an underline per row.
+   Aligned bars can be compared straight down the list, which is the whole
+   point of sorting by size — and an underline could not have survived the
+   panel scrolling sideways. */
+.tree-row .minibar {
+  width: 42px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  flex: none;
+}
+
+.tree-row .minibar i {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  border-radius: 2px;
+}
+
+.tree-row.total .name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Never squeezed to an ellipsis: the row grows and the panel scrolls instead,
+   because a truncated name in a deep tree is what made this panel unreadable
+   in the first place. */
 .tree-row .name {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
+  padding-right: 8px;
 }
 
 .tree-row .size {
@@ -442,43 +1012,40 @@ button:focus-visible {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
   flex: none;
+  min-width: 5.4em;
+  text-align: right;
+}
+
+.tree-row .share-num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  width: 2.8em;
+  text-align: right;
+  flex: none;
 }
 
 .tree-row.selected .size,
-.tree-row:hover .size {
+.tree-row:hover .size,
+.tree-row.selected .share-num,
+.tree-row:hover .share-num {
   color: var(--text-dim);
 }
 
-.twist {
-  width: 14px;
-  flex: none;
-  text-align: center;
+.tree-note {
+  font-size: 11px;
   color: var(--text-faint);
-  font-size: 9px;
-  line-height: 1;
+  padding: 2px 12px 5px 0;
+  display: flex;
+  align-items: center;
 }
 
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  flex: none;
-}
-
-/* Share bar behind each row, so the panel reads as a chart too. */
-.share {
-  position: relative;
-}
-
-.share::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: var(--share, 0%);
-  background: rgba(56, 189, 175, 0.09);
-  pointer-events: none;
+/* Aligned with the name column, so a note about a folder's contents sits where
+   its contents would. */
+.tree-note > span:last-child {
+  padding-left: 32px;
+  white-space: nowrap;
 }
 
 /* -------------------------------------------------------------- inspector */
@@ -486,7 +1053,7 @@ button:focus-visible {
 .kv {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 3px 10px;
+  gap: 4px 10px;
   font-size: 12px;
   margin: 0 0 14px;
 }
@@ -500,15 +1067,21 @@ button:focus-visible {
   font-family: var(--mono);
   font-size: 11.5px;
   word-break: break-all;
+  -webkit-user-select: text;
   user-select: text;
+  font-variant-numeric: tabular-nums;
 }
 
 .inspector h3 {
-  font-size: 13px;
+  font-size: 13.5px;
   margin: 0 0 3px;
   font-family: var(--mono);
   word-break: break-all;
+  -webkit-user-select: text;
   user-select: text;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .inspector .path {
@@ -517,7 +1090,26 @@ button:focus-visible {
   font-family: var(--mono);
   word-break: break-all;
   margin-bottom: 12px;
+  -webkit-user-select: text;
   user-select: text;
+}
+
+/* The selection's own share of the scan, as a bar. Same encoding as the folder
+   list, so the two panels agree. */
+.share-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #0a0e1a;
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+  margin: 0 0 12px;
+}
+
+.share-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--tint, var(--accent));
 }
 
 .actions {
@@ -532,12 +1124,58 @@ button:focus-visible {
   line-height: 1.5;
 }
 
+.trash-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  overflow: hidden;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.trash-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border-bottom: 1px solid #1a2137;
+}
+
+.trash-item:last-child {
+  border-bottom: none;
+}
+
+.trash-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+}
+
+.trash-item b {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.trash-path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ---------------------------------------------------------------- dialog */
 
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(4, 7, 10, 0.7);
+  background: rgba(5, 7, 14, 0.72);
   display: grid;
   place-items: center;
   z-index: 50;
@@ -547,13 +1185,13 @@ button:focus-visible {
 .dialog {
   background: var(--panel);
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
+  border-radius: var(--r-surface);
   width: 100%;
   max-width: 760px;
   max-height: 82vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
 }
 
 .dialog header {
@@ -565,9 +1203,10 @@ button:focus-visible {
 }
 
 .dialog header h2 {
-  font-size: 14px;
+  font-size: 14.5px;
   margin: 0;
   flex: 1;
+  font-weight: 600;
 }
 
 .dialog .body {
@@ -579,6 +1218,7 @@ button:focus-visible {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
   padding: 11px 14px;
   border-top: 1px solid var(--border);
 }
@@ -590,7 +1230,7 @@ button:focus-visible {
 }
 
 .field label {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-dim);
 }
 
@@ -602,9 +1242,7 @@ table {
 
 th {
   text-align: left;
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11.5px;
   color: var(--text-faint);
   font-weight: 600;
   padding: 5px 8px;
@@ -616,9 +1254,10 @@ th {
 
 td {
   padding: 5px 8px;
-  border-bottom: 1px solid #17202a;
+  border-bottom: 1px solid #1a2137;
   font-family: var(--mono);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 tbody tr:hover {
@@ -635,13 +1274,14 @@ th.right {
 }
 
 .error {
-  color: #fecaca;
-  background: rgba(248, 113, 113, 0.09);
-  border: 1px solid #7f2d2d;
-  border-radius: 5px;
+  color: #ffc9c9;
+  background: rgba(255, 107, 107, 0.09);
+  border: 1px solid #7a3232;
+  border-radius: var(--r-control);
   padding: 8px 10px;
   font-size: 12px;
   margin-bottom: 12px;
+  -webkit-user-select: text;
   user-select: text;
 }
 
@@ -652,10 +1292,258 @@ th.right {
   text-align: center;
 }
 
+/* ----------------------------------------------------------------- welcome */
+
+.welcome {
+  overflow-y: auto;
+  padding: 30px 24px 40px;
+}
+
+.welcome-inner {
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+.welcome h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.welcome > .welcome-inner > p {
+  color: var(--text-dim);
+  margin: 0 0 22px;
+  line-height: 1.6;
+  max-width: 56ch;
+}
+
+/* One-click scan targets. The front door of a disk analyser should be the
+   disk, not a file picker. */
+.targets {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+
+.target {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  width: 100%;
+}
+
+.target:hover:not(:disabled) {
+  background: var(--panel-raised);
+  border-color: var(--accent-deep);
+}
+
+.target .icon {
+  display: grid;
+  place-items: center;
+}
+
+/* The same drawn folder the tree panel uses, for the same reason. */
+.target .icon .folder {
+  position: relative;
+  width: 13px;
+  height: 10px;
+  border-radius: 1px 2px 2px 2px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.target .icon .folder::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 6px;
+  height: 3px;
+  border-radius: 1px 1px 0 0;
+  background: inherit;
+}
+
+.target .label {
+  min-width: 0;
+}
+
+.target .label b {
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.target .label b em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.target .label > span {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.volume {
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-surface);
+  margin-bottom: 18px;
+}
+
+.volume .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.volume .head b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.volume .head span {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.volume .meter {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: #0a0e1a;
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+
+.volume .meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 5px 0 0 5px;
+  background: var(--accent);
+}
+
+.volume.tight .meter i {
+  background: var(--hot);
+}
+
+.volume.critical .meter i {
+  background: var(--alarm);
+}
+
+/* ------------------------------------------------------------------ toasts */
+
+/* What just happened, said once and then gone. A destructive action that gives
+   no feedback leaves people clicking it again to check. */
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 60;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  max-width: 420px;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 9px;
+  padding: 10px 11px;
+  background: var(--panel-high);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-control);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  animation: toast-in 160ms ease-out;
+}
+
+.toast.done {
+  border-left-color: var(--shrink);
+}
+
+.toast.failed {
+  border-left-color: var(--alarm);
+}
+
+.toast .mark {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.toast .text {
+  min-width: 0;
+}
+
+.toast .text b {
+  font-weight: 500;
+}
+
+.toast .text span {
+  display: block;
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.toast button {
+  padding: 1px 6px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.toast button:hover {
+  background: transparent;
+  color: var(--text);
+  border-color: transparent;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ----------------------------------------------------------------- spinner */
+
 .spinner {
   width: 13px;
   height: 13px;
-  border: 2px solid #2b3947;
+  border: 2px solid var(--border-strong);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -670,7 +1558,25 @@ th.right {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  /* An indeterminate bar with no motion says nothing at all, so this one keeps
+     a slow sweep rather than freezing: it is the only signal that work is
+     still going. */
+  .progress .track.unknown i {
+    animation: sweep 3s ease-in-out infinite !important;
+    animation-duration: 3s !important;
+    animation-iteration-count: infinite !important;
+  }
+
   .spinner {
-    animation-duration: 2s;
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
   }
 }

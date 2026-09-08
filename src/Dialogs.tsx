@@ -3,7 +3,15 @@
 
 import { useEffect, useState } from "react";
 import { open as openFolder } from "@tauri-apps/plugin-dialog";
-import { api, errorMessage, type DiffView, type Opened, type ScanMeta } from "./api";
+import {
+  api,
+  errorMessage,
+  type DiffView,
+  type Opened,
+  type ScanMeta,
+  type ScanRequest,
+  type SizeBasis,
+} from "./api";
 import * as fmt from "./format";
 
 function Scrim({ children, onClose }: { children: React.ReactNode; onClose(): void }) {
@@ -29,40 +37,48 @@ function Scrim({ children, onClose }: { children: React.ReactNode; onClose(): vo
 
 // ------------------------------------------------------------- scan folder
 
+/**
+ * Settings for a scan, and nothing more.
+ *
+ * It hands the request back and closes rather than waiting for the scan: the
+ * progress belongs in the window, where it can be watched next to whatever was
+ * already open, not behind a dialog that has to stay put until the disk is
+ * finished.
+ */
 export function ScanDialog({
   onClose,
-  onOpened,
+  onStart,
 }: {
   onClose(): void;
-  onOpened(result: Opened): void;
+  onStart(request: ScanRequest, label: string): void;
 }) {
   const [path, setPath] = useState("");
   const [exclude, setExclude] = useState("node_modules, .git");
   const [oneFileSystem, setOneFileSystem] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pick = async () => {
-    const chosen = await openFolder({ directory: true, multiple: false });
-    if (typeof chosen === "string") setPath(chosen);
+    try {
+      const chosen = await openFolder({ directory: true, multiple: false });
+      if (typeof chosen === "string") setPath(chosen);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   };
 
   const start = () => {
     if (!path) return;
-    setBusy(true);
-    setError(null);
-    api
-      .scanDirectory({
+    onStart(
+      {
         path,
         exclude: exclude
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
         oneFileSystem,
-      })
-      .then(onOpened)
-      .catch((err) => setError(errorMessage(err)))
-      .finally(() => setBusy(false));
+      },
+      lastSegment(path),
+    );
   };
 
   return (
@@ -111,17 +127,9 @@ export function ScanDialog({
           </p>
         </div>
         <footer>
-          <button onClick={onClose} disabled={busy}>
-            Cancel
-          </button>
-          <button className="primary" onClick={start} disabled={busy || !path}>
-            {busy ? (
-              <>
-                <span className="spinner" /> Scanning…
-              </>
-            ) : (
-              "Scan"
-            )}
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={start} disabled={!path}>
+            Scan
           </button>
         </footer>
       </div>
@@ -129,21 +137,41 @@ export function ScanDialog({
   );
 }
 
+function lastSegment(path: string): string {
+  const parts = path.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
 // ---------------------------------------------------------- snapshot list
 
 function SnapshotTable({
   scans,
+  basis,
   onPick,
   selectedIds,
   onToggle,
 }: {
   scans: ScanMeta[];
+  /** The measure in force, so this column agrees with the toolbar. */
+  basis: SizeBasis;
   onPick?(scan: ScanMeta): void;
   selectedIds?: number[];
   onToggle?(id: number): void;
 }) {
   if (scans.length === 0) {
-    return <div className="empty">No snapshots here yet.</div>;
+    // An empty screen has to say how to stop being empty. This one used to
+    // read "No snapshots here yet." and stop there, which left the one thing
+    // worth knowing — that a scan has to be stored deliberately — unsaid.
+    return (
+      <div className="empty">
+        <p style={{ margin: 0 }}>No snapshots stored here yet.</p>
+        <p className="hint" style={{ marginBottom: 0 }}>
+          Scan a folder, then use <b>Save snapshot…</b> in the toolbar. Two
+          snapshots of the same folder are what a comparison is made from, so
+          the first one is worth storing before a cleanup rather than after.
+        </p>
+      </div>
+    );
   }
   return (
     <table>
@@ -153,7 +181,9 @@ function SnapshotTable({
           <th className="right">ID</th>
           <th>Taken</th>
           <th>Host</th>
-          <th className="right">Size</th>
+          {/* Named, not just "Size": with the measure switchable, an
+              unlabelled figure here would disagree with the toolbar. */}
+          <th className="right">{basis === "on_disk" ? "On disk" : "Logical"}</th>
           <th className="right">Files</th>
           <th>Root</th>
         </tr>
@@ -179,7 +209,9 @@ function SnapshotTable({
             <td className="right">{scan.id}</td>
             <td title={fmt.timestamp(scan.startedAt)}>{fmt.relativeTime(scan.startedAt)}</td>
             <td>{fmt.ellipsize(scan.host, 16)}</td>
-            <td className="right">{fmt.bytes(scan.totalSize)}</td>
+            <td className="right">
+              {fmt.bytes(basis === "on_disk" ? scan.totalAlloc : scan.totalSize)}
+            </td>
             <td className="right">{fmt.count(scan.files)}</td>
             <td title={scan.root}>
               {fmt.ellipsize(scan.root, 34)}
@@ -195,10 +227,13 @@ function SnapshotTable({
 }
 
 export function SnapshotDialog({
+  basis,
   onClose,
   onOpened,
   onDiff,
 }: {
+  /** The measure the window is reading by, so the snapshot opens the same way. */
+  basis: SizeBasis;
   onClose(): void;
   onOpened(result: Opened): void;
   onDiff(view: DiffView): void;
@@ -279,12 +314,13 @@ export function SnapshotDialog({
           </p>
           <SnapshotTable
             scans={scans}
+            basis={basis}
             selectedIds={picked}
             onToggle={toggle}
             onPick={(scan) => {
               setBusy(true);
               api
-                .openSnapshot(db, scan.id)
+                .openSnapshot(db, scan.id, basis)
                 .then(onOpened)
                 .catch((err) => setError(errorMessage(err)))
                 .finally(() => setBusy(false));
@@ -310,9 +346,11 @@ export function SnapshotDialog({
 // ---------------------------------------------------------------- remote
 
 export function RemoteDialog({
+  basis,
   onClose,
   onOpened,
 }: {
+  basis: SizeBasis;
   onClose(): void;
   onOpened(result: Opened): void;
 }) {
@@ -367,10 +405,11 @@ export function RemoteDialog({
           {scans && (
             <SnapshotTable
               scans={scans}
+              basis={basis}
               onPick={(scan) => {
                 setBusy(true);
                 api
-                  .openRemoteSnapshot(url, token, scan.id)
+                  .openRemoteSnapshot(url, token, scan.id, basis)
                   .then(onOpened)
                   .catch((err) => setError(errorMessage(err)))
                   .finally(() => setBusy(false));

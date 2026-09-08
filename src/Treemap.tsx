@@ -18,33 +18,33 @@
 //   means there is no window in which stale tiles can be clicked.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, CATEGORIES, errorMessage, isStale, type TileArrays } from "./api";
+import { api, errorMessage, isStale, type TileArrays } from "./api";
+import type { SizeBasis } from "./basis";
+import { colorByIndex } from "./categories";
 import * as fmt from "./format";
-
-/** Must match the CSS custom properties; index matches `CATEGORIES`. */
-const CATEGORY_COLORS: Record<string, string> = {
-  directory: "#2b3947",
-  image: "#a78bfa",
-  video: "#f472b6",
-  audio: "#fbbf24",
-  document: "#60a5fa",
-  archive: "#2dd4bf",
-  code: "#a3e635",
-  binary: "#94a3b8",
-  cache: "#fb923c",
-  other: "#64748b",
-};
 
 /** A tile narrower or shorter than this cannot hold readable text. */
 const LABEL_MIN_WIDTH = 56;
 const LABEL_MIN_HEIGHT = 15;
+
+/** How long the drawing area has to hold still before it is laid out again. */
+const RESIZE_SETTLE = 110;
 
 export interface TreemapProps {
   /** Which tree `root` belongs to. Changing it invalidates every node id. */
   generation: number;
   /** Node the map is rooted at. */
   root: number;
-  selected: number | null;
+  /** Every selected node; all of them are outlined. */
+  selection: number[];
+  /**
+   * Changes when the open tree was edited in place. The generation stays the
+   * same — that is the point of editing in place — so this is what tells the
+   * map that the sizes behind it moved and it needs laying out again.
+   */
+  revision: unknown;
+  /** Which measure the rectangles are proportional to. */
+  basis: SizeBasis;
   onSelect(node: number): void;
   /** Called when a directory tile is activated, to zoom into it. */
   onZoom(node: number): void;
@@ -75,7 +75,15 @@ interface HoverDetail {
   isDir: boolean;
 }
 
-export function Treemap({ generation, root, selected, onSelect, onZoom }: TreemapProps) {
+export function Treemap({
+  generation,
+  root,
+  selection,
+  revision,
+  basis,
+  onSelect,
+  onZoom,
+}: TreemapProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -94,16 +102,34 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
 
   // Track the drawing area. ResizeObserver rather than window resize: the
   // panels around the map can change width without the window moving.
+  //
+  // Settled rather than live, because a layout is not free: dragging the folder
+  // panel wider fires this on every pointer move, and each one would order a
+  // fresh squarified layout of the whole subtree — millions of nodes, over the
+  // IPC bridge, for a width that is about to change again. The map redraws when
+  // the drag stops.
   useEffect(() => {
     const element = wrapRef.current;
     if (!element) return;
+    let timer = 0;
     const observer = new ResizeObserver((entries) => {
       const box = entries[0]?.contentRect;
       if (!box) return;
-      setSize({ width: Math.floor(box.width), height: Math.floor(box.height) });
+      const next = { width: Math.floor(box.width), height: Math.floor(box.height) };
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () =>
+          setSize((prev) =>
+            prev.width === next.width && prev.height === next.height ? prev : next,
+          ),
+        RESIZE_SETTLE,
+      );
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
   }, []);
 
   // Re-layout whenever the tree, the root or the available space changes.
@@ -116,7 +142,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
 
     const { width, height } = size;
     api
-      .treemap({ generation, node: root, width, height })
+      .treemap({ generation, node: root, width, height, basis })
       .then(async (result) => {
         if (cancelled) return;
         const names = await fetchLabels(generation, result);
@@ -137,7 +163,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
     return () => {
       cancelled = true;
     };
-  }, [generation, root, size.width, size.height]);
+  }, [generation, root, size.width, size.height, revision]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -155,7 +181,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#070a0e";
+    ctx.fillStyle = VOID;
     ctx.fillRect(0, 0, width, height);
 
     const labelled: number[] = [];
@@ -169,25 +195,27 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
 
       const isDir = tiles.isDir[i]!;
       const depth = tiles.depth[i]!;
-      const category = CATEGORIES[tiles.category[i]!] ?? "other";
 
       if (isDir) {
-        // Directories are containers: a faint wash plus an outline, so their
-        // children stay the thing you actually read.
-        ctx.fillStyle = depth === 0 ? "#0a0f14" : `rgba(43, 57, 71, ${0.2 + depth * 0.05})`;
+        // Directories are containers, not a category: they get a surface that
+        // lifts slightly with depth, so nesting is visible, while the colour in
+        // the map stays reserved for what the files actually are.
+        ctx.fillStyle =
+          depth === 0 ? VOID : `rgba(70, 82, 125, ${Math.min(0.14 + depth * 0.05, 0.4)})`;
         ctx.fillRect(x, y, w, h);
         if (w > 3 && h > 3) {
-          ctx.strokeStyle = depth === 0 ? "#26333f" : "rgba(120, 145, 165, 0.22)";
+          ctx.strokeStyle =
+            depth === 0 ? "rgba(58, 68, 104, 0.9)" : "rgba(139, 155, 255, 0.22)";
           ctx.lineWidth = 1;
           ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         }
       } else {
-        ctx.fillStyle = CATEGORY_COLORS[category] ?? CATEGORY_COLORS.other!;
-        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = colorByIndex(tiles.category[i]!);
+        ctx.globalAlpha = 0.88;
         ctx.fillRect(x, y, w, h);
         ctx.globalAlpha = 1;
         if (w > 4 && h > 4) {
-          ctx.strokeStyle = "rgba(7, 10, 14, 0.55)";
+          ctx.strokeStyle = "rgba(8, 11, 20, 0.6)";
           ctx.lineWidth = 1;
           ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         }
@@ -195,7 +223,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
 
       // A directory that was not subdivided has more inside it than is shown.
       if (tiles.truncated[i] && w > 14 && h > 14) {
-        ctx.fillStyle = "rgba(219, 228, 236, 0.42)";
+        ctx.fillStyle = "rgba(234, 238, 251, 0.45)";
         for (let d = 0; d < 3; d += 1) {
           ctx.fillRect(x + w - 6 - d * 4, y + h - 6, 2, 2);
         }
@@ -219,21 +247,28 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
       if (!text) continue;
       // A dark plate keeps text legible on top of any category colour.
       const metrics = ctx.measureText(text);
-      ctx.fillStyle = "rgba(7, 10, 14, 0.62)";
+      ctx.fillStyle = "rgba(8, 11, 20, 0.66)";
       ctx.fillRect(x + 2, y + 2, Math.min(metrics.width + 6, w - 4), 14);
-      ctx.fillStyle = isDir ? "#cfe0ea" : "#f2f7fa";
+      ctx.fillStyle = isDir ? "#c4cdf5" : "#f4f6ff";
       ctx.fillText(text, x + 5, y + 4);
     }
 
     // Selection and hover, drawn over everything.
-    if (selected !== null) {
-      const index = tiles.node.indexOf(selected);
-      if (index >= 0) outline(ctx, tiles, index, "#38bdaf", 2);
+    //
+    // Achromatic on purpose. Every hue in this map is a file category, so an
+    // indicator with a hue of its own would be indistinguishable from a tile
+    // wherever the two met. White works over all nine, and the dark inner line
+    // keeps it visible over the pale ones too.
+    const chosen = new Set(selection);
+    for (let i = 0; i < tiles.count; i += 1) {
+      if (!chosen.has(tiles.node[i]!)) continue;
+      outline(ctx, tiles, i, "rgba(8, 11, 20, 0.85)", 4);
+      outline(ctx, tiles, i, "#ffffff", 2);
     }
-    if (hover && hover.index < tiles.count && tiles.node[hover.index] !== selected) {
-      outline(ctx, tiles, hover.index, "rgba(219, 228, 236, 0.85)", 1.5);
+    if (hover && hover.index < tiles.count && !chosen.has(tiles.node[hover.index]!)) {
+      outline(ctx, tiles, hover.index, "rgba(255, 255, 255, 0.8)", 1.5);
     }
-  }, [tiles, labels, size, selected, hover]);
+  }, [tiles, labels, size, selection, hover]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(draw);
@@ -250,7 +285,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
     const node = hover.node;
     const timer = window.setTimeout(() => {
       api
-        .entry(generation, node)
+        .entry(generation, node, basis)
         .then((view) => {
           if (cancelled) return;
           setDetail({
@@ -311,7 +346,7 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
   };
 
   const tooltip = useMemo(() => {
-    if (!hover || !detail) return null;
+    if (!hover || !detail || !tiles) return null;
     const wrap = wrapRef.current?.getBoundingClientRect();
     if (!wrap) return null;
     // Flip the tooltip near the edges so it never leaves the map.
@@ -322,8 +357,11 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
     let top = hover.clientY - wrap.top + offset;
     if (left + estimatedWidth > wrap.width) left = Math.max(4, left - estimatedWidth - offset * 2);
     if (top + estimatedHeight > wrap.height) top = Math.max(4, top - estimatedHeight - offset * 2);
-    return { left, top, detail };
-  }, [hover, detail]);
+    // Read from the layout rather than the fetched detail: it is already here,
+    // and it cannot disagree with the tile being pointed at.
+    const category = hover.index < tiles.count ? tiles.category[hover.index]! : 0;
+    return { left, top, detail, category };
+  }, [hover, detail, tiles]);
 
   return (
     <div className="canvas-wrap" ref={wrapRef}>
@@ -344,9 +382,25 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
             {tooltip.detail.relPath || tooltip.detail.name}
             {tooltip.detail.isDir ? "/" : ""}
           </div>
-          <div className="meta num">
-            {fmt.bytes(tooltip.detail.size)}
-            {tooltip.detail.isDir && ` · ${fmt.count(tooltip.detail.files)} files`}
+          <div className="meta">
+            {/* The category, in its own colour, so the tooltip and the tile
+                under the pointer plainly refer to the same thing. */}
+            {!tooltip.detail.isDir && (
+              <span
+                className="swatch"
+                style={{
+                  background: colorByIndex(tooltip.category),
+                  width: 8,
+                  height: 8,
+                  borderRadius: 2,
+                  flex: "none",
+                }}
+              />
+            )}
+            <span className="num">
+              {fmt.bytes(tooltip.detail.size)}
+              {tooltip.detail.isDir && ` · ${fmt.count(tooltip.detail.files)} files`}
+            </span>
           </div>
         </div>
       )}
@@ -369,6 +423,9 @@ export function Treemap({ generation, root, selected, onSelect, onZoom }: Treema
 
 /** Shared so an empty render does not allocate a Map every time. */
 const EMPTY_LABELS: Map<number, string> = new Map();
+
+/** The ground the map is painted on; matches `--void` in theme.css. */
+const VOID = "#080b14";
 
 /**
  * The deepest tile containing the point.
