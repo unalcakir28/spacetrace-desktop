@@ -728,7 +728,9 @@ fn save_snapshot(
     db: String,
     label: Option<String>,
 ) -> Result<SavedSnapshot, String> {
-    let trimmed = label.map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
+    let trimmed = label
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty());
 
     let guard = state.current.read().map_err(|_| lock_poisoned())?;
     let loaded = guard.as_ref().ok_or("nothing is open yet")?;
@@ -1786,7 +1788,10 @@ mod tests {
                 std::fs::write(root.join("notes.md"), vec![b'x'; 100]).unwrap();
                 std::fs::write(root.join("movie.mp4"), vec![0u8; 90_000]).unwrap();
             });
-            assert_eq!(dominant(&tree, tree.root(), SizeBasis::Logical), Category::Video);
+            assert_eq!(
+                dominant(&tree, tree.root(), SizeBasis::Logical),
+                Category::Video
+            );
         }
 
         #[test]
@@ -1800,7 +1805,10 @@ mod tests {
                 std::fs::write(root.join("small.txt"), vec![b'x'; 10]).unwrap();
             });
             let target = tree.find("target").unwrap();
-            assert_eq!(dominant(&tree, target, SizeBasis::Logical), Category::Binary);
+            assert_eq!(
+                dominant(&tree, target, SizeBasis::Logical),
+                Category::Binary
+            );
         }
 
         #[test]
@@ -1809,7 +1817,10 @@ mod tests {
                 std::fs::create_dir(root.join("empty")).unwrap();
             });
             let empty = tree.find("empty").unwrap();
-            assert_eq!(dominant(&tree, empty, SizeBasis::Logical), Category::Directory);
+            assert_eq!(
+                dominant(&tree, empty, SizeBasis::Logical),
+                Category::Directory
+            );
         }
 
         /// The case the basis parameter exists for.
@@ -1857,7 +1868,10 @@ mod tests {
                 std::fs::write(root.join("stubs/a.mp4"), b"").unwrap();
             });
             let stubs = tree.find("stubs").unwrap();
-            assert_eq!(dominant(&tree, stubs, SizeBasis::Logical), Category::Directory);
+            assert_eq!(
+                dominant(&tree, stubs, SizeBasis::Logical),
+                Category::Directory
+            );
         }
     }
 
@@ -2006,9 +2020,8 @@ mod tests {
         /// with a blank name rather than an unnamed one.
         #[test]
         fn a_blank_label_is_stored_as_no_label() {
-            let cleaned = |l: Option<&str>| {
-                l.map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
-            };
+            let cleaned =
+                |l: Option<&str>| l.map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
             assert_eq!(cleaned(Some("   ")), None);
             assert_eq!(cleaned(Some("")), None);
             assert_eq!(cleaned(Some("  weekly ")), Some("weekly".to_string()));
@@ -2019,8 +2032,12 @@ mod tests {
     #[test]
     fn each_loaded_tree_gets_a_new_generation() {
         let state = AppState::default();
-        let first = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
-        let second = state.set(one_node_tree("b"), live("/b"), None, None).unwrap();
+        let first = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
+        let second = state
+            .set(one_node_tree("b"), live("/b"), None, None)
+            .unwrap();
         assert!(second > first, "{second} should follow {first}");
     }
 
@@ -2029,7 +2046,9 @@ mod tests {
     #[test]
     fn a_request_carrying_an_old_generation_is_refused() {
         let state = AppState::default();
-        let old = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
+        let old = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
 
         // Still current: it works.
         assert_eq!(
@@ -2040,7 +2059,9 @@ mod tests {
         );
 
         // A new scan replaces the tree.
-        let new = state.set(one_node_tree("b"), live("/b"), None, None).unwrap();
+        let new = state
+            .set(one_node_tree("b"), live("/b"), None, None)
+            .unwrap();
 
         let err = state.with_tree_at(old, |_, _| Ok(())).unwrap_err();
         assert_eq!(err, STALE_GENERATION);
@@ -2058,7 +2079,9 @@ mod tests {
     #[test]
     fn a_generation_from_the_future_is_also_refused() {
         let state = AppState::default();
-        let current = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
+        let current = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
         assert_eq!(
             state.with_tree_at(current + 1, |_, _| Ok(())).unwrap_err(),
             STALE_GENERATION
@@ -2080,7 +2103,9 @@ mod tests {
     #[test]
     fn editing_the_tree_keeps_its_generation() {
         let state = AppState::default();
-        let generation = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
+        let generation = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
 
         state
             .edit_tree_at(generation, |loaded| {
@@ -2096,8 +2121,12 @@ mod tests {
     #[test]
     fn editing_a_tree_that_is_no_longer_open_is_refused() {
         let state = AppState::default();
-        let old = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
-        state.set(one_node_tree("b"), live("/b"), None, None).unwrap();
+        let old = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
+        state
+            .set(one_node_tree("b"), live("/b"), None, None)
+            .unwrap();
 
         assert_eq!(
             state.edit_tree_at(old, |_| Ok(())).unwrap_err(),
@@ -2108,7 +2137,9 @@ mod tests {
     #[test]
     fn hidden_entries_are_visible_to_the_listing_code() {
         let state = AppState::default();
-        let generation = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
+        let generation = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
         state
             .edit_tree_at(generation, |loaded| {
                 loaded.hidden.insert(3);
@@ -2127,7 +2158,9 @@ mod tests {
         // Otherwise a trashed id would go on hiding an unrelated entry in the
         // next scan, where the same number means something else entirely.
         let state = AppState::default();
-        let first = state.set(one_node_tree("a"), live("/a"), None, None).unwrap();
+        let first = state
+            .set(one_node_tree("a"), live("/a"), None, None)
+            .unwrap();
         state
             .edit_tree_at(first, |loaded| {
                 loaded.hidden.insert(1);
@@ -2135,7 +2168,9 @@ mod tests {
             })
             .unwrap();
 
-        let second = state.set(one_node_tree("b"), live("/b"), None, None).unwrap();
+        let second = state
+            .set(one_node_tree("b"), live("/b"), None, None)
+            .unwrap();
         let hidden_count = state
             .with_visible_at(second, |_, _, hidden| Ok(hidden.len()))
             .unwrap();
