@@ -7,6 +7,23 @@ took last week, or a server running the agent.
 Tauri v2 + React/TypeScript, with all the real work done by the open-source
 Rust core.
 
+## Download
+
+**[unalcakir28.github.io/spacetrace/download.html](https://unalcakir28.github.io/spacetrace/download.html#desktop)**
+— one universal `.dmg` for macOS, an `.exe` installer for Windows, and `.deb`,
+`.rpm` and `.AppImage` for Linux.
+
+The bundles are built here and published into the
+[public core repository's releases](https://github.com/unalcakir28/spacetrace/releases),
+because a private repository's release assets need a credential to download and
+a download page cannot supply one. Two channels: `desktop-v*` for a tagged
+release and `desktop-continuous` for the newest `main`. See
+[RELEASING.md](RELEASING.md).
+
+Nothing is code-signed, so macOS and Windows both warn on first launch; the
+download page says exactly what to click and publishes a checksum for every
+file.
+
 ## Status
 
 Phase 3 of the roadmap. Working:

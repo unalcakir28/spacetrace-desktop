@@ -1,0 +1,236 @@
+name: Release
+
+# The bundles are built here and published **into the public repo**
+# (unalcakir28/spacetrace), because a private repository's release assets need
+# a credential to download and a download page must not ask for one. Source
+# stays private; the installers are public. See RELEASING.md.
+#
+#   push to main   -> tag `desktop-continuous`, replaced in place
+#   push of a v*   -> tag `desktop-v…`, permanent
+#
+# Nothing is code-signed. macOS and Windows will both warn on first launch and
+# the download page says so and how to get past it; signing needs certificates
+# that cost money and cannot live in a repo.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "*.md"
+      - "tasks/**"
+      - "design-preview.html"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version to build as, e.g. v0.1.0-test"
+        required: true
+      publish:
+        description: >-
+          Publish the result. Off by default, so a dispatch is a dry run.
+          Turn it on to release a tag by hand — which is the way out if the
+          paths-ignore filter above skipped a tag push.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Where the downloads live. One public place for all three components.
+  DOWNLOAD_REPO: unalcakir28/spacetrace
+
+jobs:
+  meta:
+    name: version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      rolling: ${{ steps.pick.outputs.rolling }}
+      tag: ${{ steps.pick.outputs.tag }}
+    steps:
+      - id: pick
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ -n "${INPUT_TAG:-}" ]; then
+            version="$INPUT_TAG"; rolling=false
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"; rolling=false
+          else
+            version=continuous; rolling=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "rolling=$rolling" >> "$GITHUB_OUTPUT"
+          echo "tag=desktop-$version" >> "$GITHUB_OUTPUT"
+          echo "Building as desktop-$version" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.label }}
+    needs: meta
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal .dmg rather than two: the download page then has a
+          # single macOS button, and "which Mac do I have" stops being the
+          # user's problem.
+          - label: macos-universal
+            os: macos-latest
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundles: dmg
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
+            bundles: nsis
+          # 24.04 for the glibc floor; deb, rpm and AppImage all come off this
+          # one build.
+          - label: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            rust-targets: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: System prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev build-essential file rpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.label }}
+
+      - run: yarn install --frozen-lockfile
+
+      - name: Build bundles
+        run: yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Collect
+        shell: bash
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          LABEL: ${{ matrix.label }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          shopt -s nullglob
+          mkdir -p dist
+          found=0
+          for f in src-tauri/target/"$TARGET"/release/bundle/*/*.dmg \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.exe \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.deb \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.rpm \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.AppImage; do
+            ext="${f##*.}"
+            # A stable name is the point: the download page links one URL per
+            # platform and it must not move when the version does.
+            if [ "$ext" = "exe" ]; then suffix="-setup"; else suffix=""; fi
+            cp "$f" "dist/spacetrace-desktop-${VERSION}-${LABEL}${suffix}.${ext}"
+            found=$((found + 1))
+          done
+          [ "$found" -gt 0 ] || { echo "no bundles were produced" >&2; exit 1; }
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish ${{ needs.meta.outputs.tag }}
+    needs: [meta, build]
+    # A dispatch is a dry run unless it was asked to publish.
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          sha256sum ./* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Where do these go
+        id: dest
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -n "${RELEASE_TOKEN:-}" ]; then
+            echo "repo=$DOWNLOAD_REPO" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=$GITHUB_REPOSITORY" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Downloads are not public::RELEASE_TOKEN is unset, so the bundles were published into this private repository. Their URLs need a credential to fetch, which the download page cannot supply. RELEASING.md has the one command that fixes it."
+          fi
+
+      - name: Publish
+        env:
+          # The fine-grained token when it exists, so the release lands in the
+          # public repo; the built-in one otherwise, which can only write here.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ steps.dest.outputs.repo }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          ROLLING: ${{ needs.meta.outputs.rolling }}
+        run: |
+          cat > notes.md <<EOF
+          spacetrace desktop, built from \`$GITHUB_REPOSITORY\` at \`${GITHUB_SHA:0:7}\` on $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          | Platform | File |
+          |---|---|
+          | macOS 11+ (Intel and Apple silicon) | \`.dmg\` |
+          | Windows 10/11 | \`-setup.exe\` |
+          | Debian / Ubuntu | \`.deb\` |
+          | Fedora / RHEL | \`.rpm\` |
+          | Any Linux | \`.AppImage\` |
+
+          **Not code-signed.** macOS: right-click the app and choose *Open*, or
+          run \`xattr -dr com.apple.quarantine /Applications/spacetrace.app\`.
+          Windows: *More info* then *Run anyway* on the SmartScreen prompt.
+
+          Install notes and usage: https://unalcakir28.github.io/spacetrace/download.html
+          EOF
+
+          if [ "$ROLLING" = "true" ]; then
+            # Deleted and recreated so a bundle dropped from the matrix cannot
+            # linger on the download page as a stale link.
+            gh release delete "$TAG" --repo "$REPO" --cleanup-tag --yes || true
+            gh release create "$TAG" artifacts/* \
+              --repo "$REPO" \
+              --prerelease \
+              --title "Desktop — continuous build (main)" \
+              --notes-file notes.md
+          else
+            gh release create "$TAG" artifacts/* \
+              --repo "$REPO" \
+              --title "spacetrace desktop $VERSION" \
+              --notes-file notes.md
+          fi
