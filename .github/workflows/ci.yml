@@ -40,6 +40,13 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn typecheck
 
+      # `tauri::generate_context!()` reads the bundle configuration at compile
+      # time and refuses to expand when `frontendDist` does not exist, so the
+      # frontend has to be built before anything touches the Rust crate — even
+      # for a check that never links a binary. It is missing on a fresh
+      # checkout because dist/ is generated and gitignored.
+      - run: yarn build
+
       - name: Rust
         working-directory: src-tauri
         run: |
@@ -50,10 +57,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      # See the note in the lint job: the Rust crate does not compile without
+      # the built frontend, tests included.
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+
       - name: Tests
         working-directory: src-tauri
         run: cargo test
