@@ -136,7 +136,10 @@ jobs:
         run: |
           set -eu
           shopt -s nullglob
-          mkdir -p dist
+          # NOT dist/: that is Vite's output directory (`frontendDist` is
+          # ../dist), so staging here would upload index.html and assets/
+          # alongside the installers.
+          mkdir -p bundles
           found=0
           for f in src-tauri/target/"$TARGET"/release/bundle/*/*.dmg \
                    src-tauri/target/"$TARGET"/release/bundle/*/*.exe \
@@ -147,16 +150,16 @@ jobs:
             # A stable name is the point: the download page links one URL per
             # platform and it must not move when the version does.
             if [ "$ext" = "exe" ]; then suffix="-setup"; else suffix=""; fi
-            cp "$f" "dist/spacetrace-desktop-${VERSION}-${LABEL}${suffix}.${ext}"
+            cp "$f" "bundles/spacetrace-desktop-${VERSION}-${LABEL}${suffix}.${ext}"
             found=$((found + 1))
           done
           [ "$found" -gt 0 ] || { echo "no bundles were produced" >&2; exit 1; }
-          ls -la dist
+          ls -la bundles
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.label }}
-          path: dist/*
+          path: bundles/*
           if-no-files-found: error
 
   publish:
@@ -174,9 +177,13 @@ jobs:
           merge-multiple: true
 
       - name: Checksums
+        # Regular files only, and never the sums file itself: `sha256sum ./*`
+        # dies on the first directory it meets, which is how a stray folder in
+        # an artifact takes the whole release down.
         run: |
           cd artifacts
-          sha256sum ./* > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -exec sha256sum {} + \
+            | sort -k2 > SHA256SUMS
           cat SHA256SUMS
 
       - name: Where do these go
