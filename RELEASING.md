@@ -100,9 +100,17 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY \
   < ~/.spacetrace/updater.key
 ```
 
-Sır yoksa yayın **düşmüyor**: imzasız paketler üretiliyor, `latest.json` adımı
-uyarı basıp atlanıyor ve önceki manifest yerinde kalıyor. Yani kendi kendine
-güncelleme kapalı kalır, indirmeler çalışmaya devam eder.
+**Sır yoksa iş akışı güncelleyiciyi derleme için tamamen kapatıyor** — imzasız
+bırakmakla yetinmiyor. İkisi de ölçülerek öğrenildi:
+
+- Tanımsız bir sır boş dizeye genişliyor, Tauri o boş anahtarla imzalamaya
+  çalışıp `Missing comment in secret key` ile düşüyor.
+- Özel anahtar hiç olmasa bile, yapılandırmada `pubkey` durduğu sürece yine
+  düşüyor: `A public key has been found, but no private key`.
+
+Bu yüzden yapılandırma `jq` ile kırpılıyor. Kurulum paketleri normal derlenip
+yayınlanıyor; yalnızca kendi kendine güncelleme yok — ki imzalayamayan bir boru
+hattının dürüst hâli bu. Sır eklendiği anda kendiliğinden geri geliyor.
 
 **Bu anahtar kod imzalama değil.** Tauri'nin minisign imzası paketin bu
 boru hattından geldiğini kanıtlıyor; işletim sisteminin uygulamaya güvendiğini

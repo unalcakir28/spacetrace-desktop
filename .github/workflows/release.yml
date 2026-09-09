@@ -164,14 +164,34 @@ jobs:
           SPACETRACE_CHANNEL: ${{ needs.meta.outputs.channel }}
           # Signs the updater packages. This is Tauri's own minisign key, not
           # an Apple or Microsoft certificate: it proves an update came from
-          # this pipeline, and says nothing about whether the OS trusts the
-          # app. Without the secret the build still succeeds and simply
-          # produces no `.sig`, which the publish step then notices.
+          # this pipeline, and says nothing about whether the OS trusts the app.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: |
           export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          # Without the secret, the updater has to be switched off for the
+          # build — not merely left unsigned. Two things were measured here,
+          # both the hard way:
+          #
+          #   * an unset secret expands to an empty string, and Tauri signs
+          #     with it and dies: "Missing comment in secret key";
+          #   * with `pubkey` still in the config and no private key at all,
+          #     it dies anyway: "A public key has been found, but no private
+          #     key".
+          #
+          # So the config is stripped instead. Installers still build and
+          # publish; only self-update is absent, which is the honest state of
+          # a pipeline that cannot sign. Setting the secret is one command and
+          # RELEASING.md has it.
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            jq 'del(.plugins.updater) | .bundle.createUpdaterArtifacts = false' \
+              src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+            mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+            echo "::warning title=Updates are disabled in this build::TAURI_SIGNING_PRIVATE_KEY is unset, so the app cannot check for or install updates. Downloads are unaffected. RELEASING.md has the one command that fixes it."
+          fi
           # The lockfile is verified separately rather than with `--locked` on
           # the build. yarn 1 drops every argument before a `--`, so
           # `yarn tauri build --target X -- --locked` reaches the CLI as
