@@ -9,15 +9,16 @@
 import { useEffect, useState } from "react";
 import { api, errorMessage, isStale, type EntryView, type Opened } from "./api";
 import {
-  BASIS_LABEL,
+  basisLabel,
   divergence,
-  DIVERGENCE_NOTE,
+  divergenceNote,
   measure,
   OTHER_BASIS,
   totalOf,
   type SizeBasis,
 } from "./basis";
-import { categoryColor, CATEGORY_NOTES } from "./categories";
+import { categoryColor, categoryNote } from "./categories";
+import { fill, useDict } from "./i18n";
 import * as fmt from "./format";
 
 export interface InspectorProps {
@@ -65,42 +66,46 @@ export function Inspector({
 }
 
 function NothingSelected({ opened, basis }: { opened: Opened; basis: SizeBasis }) {
+  const d = useDict();
   return (
     <>
       <div className="panel-title" style={{ paddingLeft: 0 }}>
-        Nothing selected
+        {d.inspector.nothingSelected}
       </div>
       <p className="hint" style={{ marginTop: 0 }}>
-        Click a row or a rectangle to inspect it. Hold ⌘ to add to the selection,
-        or ⇧ to take a run of rows. Right-click for what can be done with it.
+        {d.inspector.nothingHint}
       </p>
       <div className="panel-title" style={{ paddingLeft: 0 }}>
-        This scan
+        {d.inspector.thisScan}
       </div>
       <dl className="kv">
-        <dt>Entries</dt>
+        <dt>{d.common.entries}</dt>
         <dd>{fmt.count(opened.entries)}</dd>
         {/* The measure in force is listed first and named, so a reader who
             wonders why two figures differ finds the answer in the same place. */}
-        <dt>{BASIS_LABEL[basis]}</dt>
+        <dt>{basisLabel(basis)}</dt>
         <dd>
           <b>{fmt.bytes(totalOf(opened, basis))}</b>
         </dd>
-        <dt>{BASIS_LABEL[OTHER_BASIS[basis]]}</dt>
+        <dt>{basisLabel(OTHER_BASIS[basis])}</dt>
         <dd>
           {fmt.bytes(basis === "on_disk" ? opened.totalSize : opened.totalAlloc)}
         </dd>
         {opened.scanErrors > 0 && (
           <>
-            <dt>Unreadable</dt>
-            <dd>{fmt.count(opened.scanErrors)} paths</dd>
+            <dt>{d.common.unreadable}</dt>
+            <dd>
+              {fill(d.inspector.unreadablePaths, {
+                count: fmt.count(opened.scanErrors),
+              })}
+            </dd>
           </>
         )}
       </dl>
       {opened.errorSamples.length > 0 && (
         <details>
           <summary className="hint" style={{ cursor: "pointer" }}>
-            Paths that could not be read
+            {d.inspector.couldNotRead}
           </summary>
           <div className="hint" style={{ marginTop: 6 }}>
             {opened.errorSamples.map((sample) => (
@@ -134,6 +139,7 @@ function ManySelected({
   busy: boolean;
   onTrash(nodes: number[]): void;
 }) {
+  const d = useDict();
   const total = entries.reduce((sum, entry) => sum + measure(entry, basis), 0);
   const files = entries.reduce((sum, entry) => sum + entry.files, 0);
   const folders = entries.filter((entry) => entry.isDir).length;
@@ -144,29 +150,32 @@ function ManySelected({
   return (
     <>
       <div className="panel-title" style={{ paddingLeft: 0 }}>
-        {entries.length} selected
+        {fill(d.inspector.selectedCount, { count: entries.length })}
       </div>
       <h3 style={{ fontFamily: "var(--sans)", fontSize: 17 }}>
         <span className="num">{fmt.bytes(total)}</span>
       </h3>
       <div className="path" style={{ marginBottom: 14 }}>
-        {totalOf(opened, basis) > 0
-          ? fmt.percent(total, totalOf(opened, basis))
-          : "—"}{" "}
-        of this scan, {BASIS_LABEL[basis].toLowerCase()}
+        {fill(d.inspector.shareOfScan, {
+          share:
+            totalOf(opened, basis) > 0
+              ? fmt.percent(total, totalOf(opened, basis))
+              : d.common.nothing,
+          basis: basisLabel(basis).toLocaleLowerCase(),
+        })}
       </div>
 
       <dl className="kv">
-        <dt>Files</dt>
+        <dt>{d.common.files}</dt>
         <dd>{fmt.count(files)}</dd>
-        <dt>Folders</dt>
+        <dt>{d.common.folders}</dt>
         <dd>{fmt.count(folders)}</dd>
-        <dt>Entries</dt>
+        <dt>{d.common.entries}</dt>
         <dd>{fmt.count(entries.length)}</dd>
       </dl>
 
       <div className="panel-title" style={{ paddingLeft: 0 }}>
-        Largest of them
+        {d.inspector.largestOfThem}
       </div>
       <div className="trash-list" style={{ marginBottom: 14 }}>
         {biggest.map((entry) => (
@@ -186,7 +195,7 @@ function ManySelected({
           disabled={!opened.canModify || busy}
           onClick={() => onTrash(entries.map((entry) => entry.node))}
         >
-          Move {entries.length} items to Trash…
+          {fill(d.inspector.moveManyToTrash, { count: entries.length })}
         </button>
         {!opened.canModify && <SnapshotNote />}
       </div>
@@ -209,6 +218,7 @@ function OneSelected({
   onReveal(node: number): void;
   onTrash(nodes: number[]): void;
 }) {
+  const d = useDict();
   const [absolute, setAbsolute] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -239,7 +249,7 @@ function OneSelected({
   return (
     <>
       <div className="panel-title" style={{ paddingLeft: 0 }}>
-        Selection
+        {d.inspector.selection}
       </div>
       <h3>
         <span
@@ -249,7 +259,7 @@ function OneSelected({
         {entry.name || "/"}
         {entry.isDir ? "/" : ""}
       </h3>
-      <div className="path">{entry.relPath || "the scan root"}</div>
+      <div className="path">{entry.relPath || d.inspector.scanRoot}</div>
 
       {error && <div className="error">{error}</div>}
 
@@ -260,53 +270,55 @@ function OneSelected({
       </div>
 
       <dl className="kv">
-        <dt>{BASIS_LABEL[basis]}</dt>
+        <dt>{basisLabel(basis)}</dt>
         <dd>
           <b>{fmt.bytes(own)}</b>
         </dd>
-        <dt>{BASIS_LABEL[OTHER_BASIS[basis]]}</dt>
+        <dt>{basisLabel(OTHER_BASIS[basis])}</dt>
         <dd>{fmt.bytes(basis === "on_disk" ? entry.size : entry.alloc)}</dd>
-        <dt>Share</dt>
-        <dd>{scanTotal > 0 ? fmt.percent(own, scanTotal) : "—"}</dd>
+        <dt>{d.inspector.share}</dt>
+        <dd>{scanTotal > 0 ? fmt.percent(own, scanTotal) : d.common.nothing}</dd>
         {entry.isDir && (
           <>
-            <dt>Files</dt>
+            <dt>{d.common.files}</dt>
             <dd>{fmt.count(entry.files)}</dd>
-            <dt>Folders</dt>
+            <dt>{d.common.folders}</dt>
             <dd>{fmt.count(entry.dirs)}</dd>
           </>
         )}
-        <dt>Type</dt>
-        <dd title={CATEGORY_NOTES[entry.category]}>{entry.category}</dd>
+        <dt>{d.inspector.type}</dt>
+        <dd title={categoryNote(entry.category)}>{entry.category}</dd>
         {entry.isDir && entry.dominant !== "directory" && (
           <>
-            <dt>Mostly</dt>
-            <dd title={CATEGORY_NOTES[entry.dominant]}>{entry.dominant}</dd>
+            <dt>{d.inspector.mostly}</dt>
+            <dd title={categoryNote(entry.dominant)}>{entry.dominant}</dd>
           </>
         )}
-        <dt>Modified</dt>
-        <dd>{entry.mtime > 0 ? fmt.timestamp(entry.mtime) : "—"}</dd>
-        <dt>Full path</dt>
+        <dt>{d.inspector.modified}</dt>
+        <dd>{entry.mtime > 0 ? fmt.timestamp(entry.mtime) : d.common.nothing}</dd>
+        <dt>{d.inspector.fullPath}</dt>
         <dd>{absolute}</dd>
       </dl>
 
       {gap && (
         <p className="hint" style={{ marginTop: -4 }}>
-          {gap === "sparse" && <span className="badge warn">sparse</span>}{" "}
-          {DIVERGENCE_NOTE[gap]}
+          {gap === "sparse" && (
+            <span className="badge warn">{d.basis.sparse}</span>
+          )}{" "}
+          {divergenceNote(gap)}
         </p>
       )}
 
       <div className="actions">
         <button onClick={() => onReveal(entry.node)} disabled={!opened.canModify}>
-          Show in file manager
+          {d.inspector.showInFileManager}
         </button>
         <button
           className={opened.canModify ? "danger" : undefined}
           onClick={() => onTrash([entry.node])}
           disabled={!opened.canModify || entry.relPath === "" || busy}
         >
-          Move to Trash…
+          {d.inspector.moveToTrash}
         </button>
         {!opened.canModify && <SnapshotNote />}
       </div>
@@ -315,10 +327,5 @@ function OneSelected({
 }
 
 function SnapshotNote() {
-  return (
-    <p className="hint">
-      This is a stored snapshot, not the live filesystem, so files cannot be
-      acted on. Scan the folder again to work with it.
-    </p>
-  );
+  return <p className="hint">{useDict().inspector.snapshotNote}</p>;
 }

@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Opened } from "./api";
 import * as fmt from "./format";
+import { useDict } from "./i18n";
 
 export function SaveDialog({
   opened,
@@ -29,6 +30,7 @@ export function SaveDialog({
   onConfirm(label: string): void;
   onCancel(): void;
 }) {
+  const d = useDict();
   const [label, setLabel] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -56,7 +58,7 @@ export function SaveDialog({
     >
       <div className="dialog" style={{ maxWidth: 520 }} role="dialog" aria-modal="true">
         <header>
-          <h2>Store this scan</h2>
+          <h2>{d.save.title}</h2>
         </header>
         <form
           onSubmit={(event) => {
@@ -66,29 +68,27 @@ export function SaveDialog({
         >
           <div className="body">
             <dl className="kv" style={{ marginBottom: 12 }}>
-              <dt>Folder</dt>
+              <dt>{d.save.folder}</dt>
               <dd style={{ wordBreak: "break-all" }}>{root}</dd>
-              <dt>On disk</dt>
+              <dt>{d.basis.onDisk}</dt>
               <dd>{fmt.bytes(opened.totalAlloc)}</dd>
-              <dt>Entries</dt>
+              <dt>{d.common.entries}</dt>
               <dd>{fmt.count(opened.entries)}</dd>
             </dl>
 
             <div className="field">
-              <label htmlFor="save-label">Label</label>
+              <label htmlFor="save-label">{d.save.label}</label>
               <input
                 id="save-label"
                 ref={inputRef}
                 value={label}
-                placeholder="optional, e.g. before cleanup"
+                placeholder={d.save.labelPlaceholder}
                 onChange={(event) => setLabel(event.target.value)}
                 disabled={busy}
               />
             </div>
             <p className="hint" style={{ marginTop: 0 }}>
-              A name to recognise it by in the snapshot list. Comparisons are
-              made between snapshots of the same folder, so something saying
-              when or why helps more than a date — the date is recorded anyway.
+              {d.save.labelHint}
             </p>
 
             <div className="trash-path" style={{ marginTop: 10 }}>
@@ -97,10 +97,10 @@ export function SaveDialog({
           </div>
           <footer>
             <button type="button" onClick={onCancel} disabled={busy}>
-              Cancel
+              {d.common.cancel}
             </button>
             <button type="submit" disabled={busy}>
-              {busy ? "Storing…" : "Store snapshot"}
+              {busy ? d.save.storing : d.save.confirm}
             </button>
           </footer>
         </form>

@@ -12,7 +12,9 @@ import {
   type ScanRequest,
   type SizeBasis,
 } from "./api";
+import { basisLabel } from "./basis";
 import * as fmt from "./format";
+import { fill, useDict } from "./i18n";
 
 function Scrim({ children, onClose }: { children: React.ReactNode; onClose(): void }) {
   useEffect(() => {
@@ -52,6 +54,7 @@ export function ScanDialog({
   onClose(): void;
   onStart(request: ScanRequest, label: string): void;
 }) {
+  const d = useDict();
   const [path, setPath] = useState("");
   const [exclude, setExclude] = useState("node_modules, .git");
   const [oneFileSystem, setOneFileSystem] = useState(true);
@@ -85,27 +88,25 @@ export function ScanDialog({
     <Scrim onClose={onClose}>
       <div className="dialog" style={{ maxWidth: 560 }}>
         <header>
-          <h2>Scan a folder</h2>
+          <h2>{d.scanDialog.title}</h2>
         </header>
         <div className="body">
           {error && <div className="error">{error}</div>}
           <div className="field">
-            <label htmlFor="scan-path">Folder</label>
+            <label htmlFor="scan-path">{d.scanDialog.folder}</label>
             <div style={{ display: "flex", gap: 6 }}>
               <input
                 id="scan-path"
                 value={path}
-                placeholder="/Users/you/Projects"
+                placeholder={d.scanDialog.pathPlaceholder}
                 onChange={(e) => setPath(e.target.value)}
                 style={{ flex: 1 }}
               />
-              <button onClick={pick}>Browse…</button>
+              <button onClick={pick}>{d.common.browse}</button>
             </div>
           </div>
           <div className="field">
-            <label htmlFor="scan-exclude">
-              Skip folders with these names (comma separated)
-            </label>
+            <label htmlFor="scan-exclude">{d.scanDialog.excludeLabel}</label>
             <input
               id="scan-exclude"
               value={exclude}
@@ -119,17 +120,16 @@ export function ScanDialog({
               onChange={(e) => setOneFileSystem(e.target.checked)}
               style={{ width: "auto" }}
             />
-            Stay on one filesystem (skip mounted volumes)
+            {d.scanDialog.oneFileSystem}
           </label>
           <p className="hint" style={{ marginTop: 12 }}>
-            Scanning only reads. Unreadable paths are counted and reported rather
-            than skipped silently.
+            {d.scanDialog.readsOnly}
           </p>
         </div>
         <footer>
-          <button onClick={onClose}>Cancel</button>
+          <button onClick={onClose}>{d.common.cancel}</button>
           <button className="primary" onClick={start} disabled={!path}>
-            Scan
+            {d.scanDialog.start}
           </button>
         </footer>
       </div>
@@ -158,17 +158,16 @@ function SnapshotTable({
   selectedIds?: number[];
   onToggle?(id: number): void;
 }) {
+  const d = useDict();
   if (scans.length === 0) {
     // An empty screen has to say how to stop being empty. This one used to
     // read "No snapshots here yet." and stop there, which left the one thing
     // worth knowing — that a scan has to be stored deliberately — unsaid.
     return (
       <div className="empty">
-        <p style={{ margin: 0 }}>No snapshots stored here yet.</p>
+        <p style={{ margin: 0 }}>{d.snapshots.emptyTitle}</p>
         <p className="hint" style={{ marginBottom: 0 }}>
-          Scan a folder, then use <b>Save snapshot…</b> in the toolbar. Two
-          snapshots of the same folder are what a comparison is made from, so
-          the first one is worth storing before a cleanup rather than after.
+          {fill(d.snapshots.emptyHint, { action: d.toolbar.saveSnapshot })}
         </p>
       </div>
     );
@@ -178,14 +177,14 @@ function SnapshotTable({
       <thead>
         <tr>
           {onToggle && <th style={{ width: 28 }} />}
-          <th className="right">ID</th>
-          <th>Taken</th>
-          <th>Host</th>
+          <th className="right">{d.snapshots.columnId}</th>
+          <th>{d.snapshots.columnTaken}</th>
+          <th>{d.snapshots.columnHost}</th>
           {/* Named, not just "Size": with the measure switchable, an
               unlabelled figure here would disagree with the toolbar. */}
-          <th className="right">{basis === "on_disk" ? "On disk" : "Logical"}</th>
-          <th className="right">Files</th>
-          <th>Root</th>
+          <th className="right">{basisLabel(basis)}</th>
+          <th className="right">{d.snapshots.columnFiles}</th>
+          <th>{d.snapshots.columnRoot}</th>
         </tr>
       </thead>
       <tbody>
@@ -238,6 +237,7 @@ export function SnapshotDialog({
   onOpened(result: Opened): void;
   onDiff(view: DiffView): void;
 }) {
+  const d = useDict();
   const [db, setDb] = useState("");
   const [scans, setScans] = useState<ScanMeta[]>([]);
   const [picked, setPicked] = useState<number[]>([]);
@@ -291,13 +291,13 @@ export function SnapshotDialog({
     <Scrim onClose={onClose}>
       <div className="dialog">
         <header>
-          <h2>Stored snapshots</h2>
+          <h2>{d.snapshots.title}</h2>
           {busy && <span className="spinner" />}
         </header>
         <div className="body">
           {error && <div className="error">{error}</div>}
           <div className="field">
-            <label htmlFor="db-path">Snapshot database</label>
+            <label htmlFor="db-path">{d.snapshots.databaseLabel}</label>
             <div style={{ display: "flex", gap: 6 }}>
               <input
                 id="db-path"
@@ -305,12 +305,11 @@ export function SnapshotDialog({
                 onChange={(e) => setDb(e.target.value)}
                 style={{ flex: 1 }}
               />
-              <button onClick={() => reload(db)}>Reload</button>
+              <button onClick={() => reload(db)}>{d.common.reload}</button>
             </div>
           </div>
           <p className="hint" style={{ marginBottom: 10 }}>
-            The same database the <code>spacetrace</code> command line writes.
-            Click a row to open it; tick two rows to compare them.
+            {fill(d.snapshots.databaseHint, { command: "spacetrace" })}
           </p>
           <SnapshotTable
             scans={scans}
@@ -330,12 +329,15 @@ export function SnapshotDialog({
         <footer>
           <span className="hint" style={{ flex: 1 }}>
             {picked.length === 2
-              ? `Comparing #${Math.min(...picked)} → #${Math.max(...picked)}`
-              : `${picked.length} of 2 selected for comparison`}
+              ? fill(d.snapshots.comparing, {
+                  from: Math.min(...picked),
+                  to: Math.max(...picked),
+                })
+              : fill(d.snapshots.selectedForComparison, { count: picked.length })}
           </span>
-          <button onClick={onClose}>Close</button>
+          <button onClick={onClose}>{d.common.close}</button>
           <button className="primary" onClick={compare} disabled={picked.length !== 2 || busy}>
-            Compare
+            {d.snapshots.compare}
           </button>
         </footer>
       </div>
@@ -354,6 +356,7 @@ export function RemoteDialog({
   onClose(): void;
   onOpened(result: Opened): void;
 }) {
+  const d = useDict();
   const [url, setUrl] = useState("http://127.0.0.1:7878");
   const [token, setToken] = useState("");
   const [scans, setScans] = useState<ScanMeta[] | null>(null);
@@ -374,33 +377,32 @@ export function RemoteDialog({
     <Scrim onClose={onClose}>
       <div className="dialog">
         <header>
-          <h2>Open a remote snapshot</h2>
+          <h2>{d.remote.title}</h2>
           {busy && <span className="spinner" />}
         </header>
         <div className="body">
           {error && <div className="error">{error}</div>}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div className="field">
-              <label htmlFor="remote-url">Agent URL</label>
+              <label htmlFor="remote-url">{d.remote.urlLabel}</label>
               <input id="remote-url" value={url} onChange={(e) => setUrl(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="remote-token">Bearer token</label>
+              <label htmlFor="remote-token">{d.remote.tokenLabel}</label>
               <input
                 id="remote-token"
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="from /etc/spacetrace/token"
+                placeholder={d.remote.tokenPlaceholder}
               />
             </div>
           </div>
           <button onClick={connect} disabled={busy || !url || !token}>
-            List snapshots
+            {d.remote.list}
           </button>
           <p className="hint" style={{ margin: "10px 0" }}>
-            The snapshot is downloaded and opened exactly like a local one. The
-            agent only ever reads its machine, so nothing here can change it.
+            {d.remote.note}
           </p>
           {scans && (
             <SnapshotTable
@@ -418,7 +420,7 @@ export function RemoteDialog({
           )}
         </div>
         <footer>
-          <button onClick={onClose}>Close</button>
+          <button onClick={onClose}>{d.common.close}</button>
         </footer>
       </div>
     </Scrim>
@@ -428,43 +430,44 @@ export function RemoteDialog({
 // ------------------------------------------------------------------ diff
 
 export function DiffDialog({ view, onClose }: { view: DiffView; onClose(): void }) {
+  const d = useDict();
   const growing = view.delta >= 0;
   return (
     <Scrim onClose={onClose}>
       <div className="dialog">
         <header>
-          <h2>What changed</h2>
+          <h2>{d.diff.title}</h2>
         </header>
         <div className="body">
           <dl className="kv" style={{ gridTemplateColumns: "auto 1fr auto 1fr" }}>
-            <dt>From</dt>
+            <dt>{d.diff.from}</dt>
             <dd>
               #{view.from.id} {fmt.timestamp(view.from.startedAt)}
             </dd>
-            <dt>To</dt>
+            <dt>{d.diff.to}</dt>
             <dd>
               #{view.to.id} {fmt.timestamp(view.to.startedAt)}
             </dd>
-            <dt>Total</dt>
+            <dt>{d.diff.total}</dt>
             <dd>
               {fmt.bytes(view.oldTotal)} → {fmt.bytes(view.newTotal)}
             </dd>
-            <dt>Change</dt>
+            <dt>{d.diff.change}</dt>
             <dd style={{ color: growing ? "var(--grow)" : "var(--shrink)" }}>
               {fmt.delta(view.delta)}
             </dd>
           </dl>
 
           {view.changes.length === 0 ? (
-            <div className="empty">Nothing changed by more than the threshold.</div>
+            <div className="empty">{d.diff.nothingChanged}</div>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th className="right">Change</th>
-                  <th>Status</th>
-                  <th className="right">Now</th>
-                  <th>Path</th>
+                  <th className="right">{d.diff.change}</th>
+                  <th>{d.diff.columnStatus}</th>
+                  <th className="right">{d.diff.columnNow}</th>
+                  <th>{d.diff.columnPath}</th>
                 </tr>
               </thead>
               <tbody>
@@ -488,12 +491,11 @@ export function DiffDialog({ view, onClose }: { view: DiffView; onClose(): void 
             </table>
           )}
           <p className="hint" style={{ marginTop: 10 }}>
-            Folders that only pass a change through are skipped: the row you see is
-            the first level where the change genuinely spreads out.
+            {d.diff.passThroughNote}
           </p>
         </div>
         <footer>
-          <button onClick={onClose}>Close</button>
+          <button onClick={onClose}>{d.common.close}</button>
         </footer>
       </div>
     </Scrim>

@@ -9,6 +9,7 @@
 import { useEffect, useRef } from "react";
 import type { EntryView } from "./api";
 import * as fmt from "./format";
+import { fill, useDict } from "./i18n";
 
 /** Beyond this the list is a wall of names; the totals are what matter. */
 const LIST_LIMIT = 12;
@@ -24,6 +25,7 @@ export function TrashDialog({
   onConfirm(): void;
   onCancel(): void;
 }) {
+  const d = useDict();
   const confirmRef = useRef<HTMLButtonElement>(null);
 
   // Focus lands on Cancel's neighbour rather than on Cancel itself: Escape
@@ -63,27 +65,27 @@ export function TrashDialog({
         <header>
           <h2>
             {single
-              ? `Move ${single.name} to the Trash?`
-              : `Move ${entries.length} items to the Trash?`}
+              ? fill(d.trash.titleOne, { name: single.name })
+              : fill(d.trash.titleMany, { count: entries.length })}
           </h2>
         </header>
         <div className="body">
           <dl className="kv" style={{ marginBottom: 12 }}>
-            <dt>On disk</dt>
+            <dt>{d.basis.onDisk}</dt>
             <dd>
               <b>{fmt.bytes(totalAlloc)}</b>
             </dd>
             {claimsMore && (
               <>
-                <dt>Logical</dt>
+                <dt>{d.basis.logical}</dt>
                 <dd>{fmt.bytes(totalSize)}</dd>
               </>
             )}
-            <dt>Files</dt>
+            <dt>{d.common.files}</dt>
             <dd>{fmt.count(totalFiles)}</dd>
             {folders > 0 && (
               <>
-                <dt>Folders</dt>
+                <dt>{d.common.folders}</dt>
                 <dd>{fmt.count(folders)}</dd>
               </>
             )}
@@ -102,7 +104,7 @@ export function TrashDialog({
               ))}
               {entries.length > LIST_LIMIT && (
                 <div className="hint" style={{ padding: "5px 8px" }}>
-                  and {entries.length - LIST_LIMIT} more
+                  {fill(d.trash.andMore, { count: entries.length - LIST_LIMIT })}
                 </div>
               )}
             </div>
@@ -113,17 +115,17 @@ export function TrashDialog({
           {/* The thing people get wrong, said before they commit rather than
               after: the folder shrinks, the disk does not. */}
           <p className="hint" style={{ marginTop: 12 }}>
-            {entries.length === 1 ? "It leaves" : "They leave"} this folder now.
-            Disk space comes back when you empty the Trash, because the Trash is
-            on the same filesystem.
+            {entries.length === 1 ? d.trash.leavesOne : d.trash.leavesMany}
           </p>
         </div>
         <footer>
           <button onClick={onCancel} disabled={busy}>
-            Cancel
+            {d.common.cancel}
           </button>
           <button className="danger" ref={confirmRef} onClick={onConfirm} disabled={busy}>
-            {single ? "Move to Trash" : `Move ${entries.length} items`}
+            {single
+              ? d.trash.confirmOne
+              : fill(d.trash.confirmMany, { count: entries.length })}
           </button>
         </footer>
       </div>

@@ -21,6 +21,11 @@ spacetrace-scan-core = { git = "https://github.com/unalcakir28/spacetrace" }
 spacetrace-store = { git = "https://github.com/unalcakir28/spacetrace" }
 spacetrace-diff = { git = "https://github.com/unalcakir28/spacetrace" }
 spacetrace-treemap = { git = "https://github.com/unalcakir28/spacetrace" }
+# The changelog is written once, in the core repo, and compiled in here so the
+# What's new dialog works with no network — which is exactly the moment after
+# an update, when it is most likely to be read.
+spacetrace-changelog = { git = "https://github.com/unalcakir28/spacetrace" }
+spacetrace-buildinfo = { git = "https://github.com/unalcakir28/spacetrace" }
 
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

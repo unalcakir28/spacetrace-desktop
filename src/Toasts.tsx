@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useDict } from "./i18n";
+
 export type ToastKind = "done" | "failed" | "info";
 
 export interface Toast {
@@ -86,6 +88,7 @@ export function Toasts({
   toasts: Toast[];
   onDismiss(id: number): void;
 }) {
+  const d = useDict();
   if (toasts.length === 0) return null;
   return (
     <div className="toasts">
@@ -98,7 +101,11 @@ export function Toasts({
             <b>{toast.text}</b>
             {toast.detail && <span>{toast.detail}</span>}
           </span>
-          <button onClick={() => onDismiss(toast.id)} title="Dismiss" aria-label="Dismiss">
+          <button
+            onClick={() => onDismiss(toast.id)}
+            title={d.common.dismiss}
+            aria-label={d.common.dismiss}
+          >
             ×
           </button>
         </div>

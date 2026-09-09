@@ -1580,3 +1580,48 @@ th.right {
     animation-iteration-count: infinite !important;
   }
 }
+
+/* The changelog in the About panel. Dense, because it is a list of sentences
+   the reader scans rather than reads: the kind is the thing the eye lands on,
+   so it leads each line rather than sitting in a heading above a group. */
+.changelog {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.changelog section + section {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.changelog h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.changelog h4 em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.changelog ul {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.changelog li b {
+  color: var(--text-faint);
+  font-weight: 600;
+}

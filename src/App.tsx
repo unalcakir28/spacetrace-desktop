@@ -32,13 +32,15 @@ import {
   type TrashTick,
 } from "./api";
 import {
-  BASIS_LABEL,
-  BASIS_NOTE,
+  basisLabel,
+  basisNote,
   totalOf,
   useSizeBasis,
   type SizeBasis,
 } from "./basis";
-import { CATEGORIES, CATEGORY_NOTES, categoryColor } from "./categories";
+import { CATEGORIES, categoryColor, categoryNote } from "./categories";
+import { dict, fill, useDict } from "./i18n";
+import { About } from "./About";
 import { ContextMenu, type MenuItem, type MenuRequest } from "./ContextMenu";
 import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs";
 import { FolderTree } from "./FolderTree";
@@ -51,9 +53,10 @@ import { TrashDialog } from "./TrashDialog";
 import { Treemap } from "./Treemap";
 import * as fmt from "./format";
 
-type Dialog = "scan" | "snapshots" | "remote" | "save" | null;
+type Dialog = "scan" | "snapshots" | "remote" | "save" | "about" | null;
 
 export function App() {
+  const d = useDict();
   const [opened, setOpened] = useState<Opened | null>(null);
   const [mapRoot, setMapRoot] = useState<number>(0);
   const [crumbs, setCrumbs] = useState<EntryView[]>([]);
@@ -146,8 +149,10 @@ export function App() {
           if (result.scanErrors > 0) {
             show(
               "info",
-              `Scanned ${label}`,
-              `${fmt.count(result.scanErrors)} paths could not be read and are counted, not skipped.`,
+              fill(dict().toast.scanned, { folder: label }),
+              fill(dict().toast.scannedDetail, {
+                count: fmt.count(result.scanErrors),
+              }),
             );
           }
         })
@@ -155,7 +160,7 @@ export function App() {
           // Stopping a scan is not a failure; the user just clicked Stop and
           // whatever was open before is still on screen.
           if (isCancelled(err)) {
-            show("info", "Scan stopped", "Nothing was changed.");
+            show("info", dict().toast.scanStopped, dict().toast.scanStoppedDetail);
             return;
           }
           setError(errorMessage(err));
@@ -275,7 +280,7 @@ export function App() {
         .catch((err) => {
           const message = errorMessage(err);
           setError(message);
-          show("failed", "Could not move it to the Trash", message);
+          show("failed", dict().toast.couldNotMove, message);
         })
         .finally(() => setWorking(null));
     },
@@ -304,15 +309,18 @@ export function App() {
           show(
             "done",
             saved.label
-              ? `Stored as “${saved.label}” (#${saved.scanId})`
-              : `Stored as snapshot #${saved.scanId}`,
-            "Scan this folder again later and compare the two to see what grew.",
+              ? fill(dict().toast.storedAsLabel, {
+                  label: saved.label,
+                  id: saved.scanId,
+                })
+              : fill(dict().toast.storedAs, { id: saved.scanId }),
+            dict().toast.storedDetail,
           );
         })
         .catch((err) => {
           const message = errorMessage(err);
           setError(message);
-          show("failed", "Could not store this scan", message);
+          show("failed", dict().toast.couldNotStore, message);
         })
         .finally(() => {
           setSaving(false);
@@ -341,7 +349,11 @@ export function App() {
         .entries(opened.generation, nodes, basis)
         .then((views) => {
           if (views.length === 0) {
-            show("info", "Nothing left to move", "Those entries are already gone.");
+            show(
+              "info",
+              dict().toast.nothingLeft,
+              dict().toast.nothingLeftDetail,
+            );
             return;
           }
           setConfirming(views);
@@ -362,40 +374,40 @@ export function App() {
         // No shortcut note: this menu is the only way to re-root the map from
         // the list, on purpose. Double-click here opens the folder instead.
         items.push({
-          label: "Open in the map",
+          label: dict().menu.openInMap,
           run: () => setMapRoot(node),
         });
       }
       items.push({
-        label: "Show in file manager",
+        label: dict().menu.showInFileManager,
         disabled: !opened.canModify,
         run: () =>
           api.reveal(opened.generation, node).catch((err) => {
             const message = errorMessage(err);
             setError(message);
-            show("failed", "Could not open the file manager", message);
+            show("failed", dict().toast.couldNotOpenFileManager, message);
           }),
       });
       items.push({
-        label: "Copy path",
+        label: dict().menu.copyPath,
         run: () =>
           api
             .absolutePath(opened.generation, node)
             .then((path) => copyToClipboard(path))
-            .then(() => show("done", "Path copied"))
+            .then(() => show("done", dict().toast.pathCopied))
             .catch(() =>
               show(
                 "failed",
-                "Could not copy the path",
-                "The full path is in the panel on the right, where it can be selected.",
+                dict().toast.couldNotCopy,
+                dict().toast.couldNotCopyDetail,
               ),
             ),
       });
       items.push({
         label:
           acting.length > 1
-            ? `Move ${acting.length} items to the Trash…`
-            : "Move to Trash…",
+            ? fill(dict().menu.moveManyToTrash, { count: acting.length })
+            : dict().menu.moveToTrash,
         danger: true,
         separated: true,
         disabled: !opened.canModify || !!working,
@@ -412,20 +424,20 @@ export function App() {
       <div className="toolbar">
         <div className="brand">
           <strong>spacetrace</strong>
-          <span>disk usage over time</span>
+          <span>{d.toolbar.tagline}</span>
         </div>
-        <button onClick={() => setDialog("scan")}>Scan folder…</button>
-        <button onClick={() => setDialog("snapshots")}>Snapshots…</button>
-        <button onClick={() => setDialog("remote")}>Remote agent…</button>
+        <button onClick={() => setDialog("scan")}>{d.toolbar.scanFolder}</button>
+        <button onClick={() => setDialog("snapshots")}>{d.toolbar.snapshots}</button>
+        <button onClick={() => setDialog("remote")}>{d.toolbar.remoteAgent}</button>
         <div className="spacer" />
         {opened?.source.kind === "live" && (
           <button
             className="ghost"
             onClick={rescan}
             disabled={!!working}
-            title="Scan this folder again"
+            title={d.toolbar.rescanTitle}
           >
-            Rescan
+            {d.toolbar.rescan}
           </button>
         )}
         {opened?.source.kind === "live" && (
@@ -434,12 +446,10 @@ export function App() {
             onClick={() => setDialog("save")}
             disabled={!!working || edited}
             title={
-              edited
-                ? "Entries were moved to the Trash since this scan, so it no longer matches the disk. Rescan to store the result."
-                : "Store this scan so it can be compared against later"
+              edited ? d.toolbar.saveBlockedTitle : d.toolbar.saveSnapshotTitle
             }
           >
-            Save snapshot…
+            {d.toolbar.saveSnapshot}
           </button>
         )}
         {opened && (
@@ -447,12 +457,19 @@ export function App() {
             className="ghost"
             onClick={() => setMapRoot(opened.root.node)}
             disabled={mapRoot === opened.root.node}
-            title="Back to the top of this scan"
+            title={d.toolbar.resetZoomTitle}
           >
-            Reset zoom
+            {d.toolbar.resetZoom}
           </button>
         )}
         {opened && <BasisSwitch basis={basis} onChange={setBasis} busy={!!working} />}
+        <button
+          className="ghost"
+          onClick={() => setDialog("about")}
+          title={d.toolbar.aboutTitle}
+        >
+          {d.toolbar.about}
+        </button>
         {capacity && (
           <CapacityChip
             capacity={capacity}
@@ -500,7 +517,7 @@ export function App() {
             pane="sidebar"
             width={widths.sidebar}
             direction={1}
-            label="Folder list width"
+            label={d.tree.sidebarWidth}
             onResize={(sidebar) => setWidths({ ...widths, sidebar })}
             onReset={() => setWidths({ ...widths, sidebar: DEFAULT_WIDTHS.sidebar })}
           />
@@ -521,7 +538,7 @@ export function App() {
               ))}
               <span style={{ flex: 1 }} />
               <span className="hint" style={{ paddingRight: 4, whiteSpace: "nowrap" }}>
-                double-click to zoom · backspace to go up
+                {d.map.crumbHint}
               </span>
             </div>
 
@@ -548,7 +565,7 @@ export function App() {
             pane="inspector"
             width={widths.inspector}
             direction={-1}
-            label="Details panel width"
+            label={d.tree.inspectorWidth}
             onResize={(inspector) => setWidths({ ...widths, inspector })}
             onReset={() => setWidths({ ...widths, inspector: DEFAULT_WIDTHS.inspector })}
           />
@@ -563,7 +580,7 @@ export function App() {
                 api.reveal(opened.generation, node).catch((err) => {
                   const message = errorMessage(err);
                   setError(message);
-                  show("failed", "Could not open the file manager", message);
+                  show("failed", dict().toast.couldNotOpenFileManager, message);
                 })
               }
               onTrash={askToTrash}
@@ -611,6 +628,7 @@ export function App() {
           onOpened={receive}
         />
       )}
+      {dialog === "about" && <About onClose={() => setDialog(null)} />}
       {diff && <DiffDialog view={diff} onClose={() => setDiff(null)} />}
 
       <Toasts toasts={toasts} onDismiss={dismiss} />
@@ -635,19 +653,23 @@ function report(
   // is about space.
   const freed = result.trashed.reduce((sum, entry) => sum + entry.alloc, 0);
 
+  const d = dict();
+
   if (moved > 0) {
     const what =
-      moved === 1 ? `${result.trashed[0]?.name} is in the Trash` : `${moved} items are in the Trash`;
+      moved === 1
+        ? fill(d.toast.inTrashOne, { name: result.trashed[0]?.name ?? "" })
+        : fill(d.toast.inTrashMany, { count: moved });
     const redundant =
       result.redundant > 0
-        ? ` ${result.redundant} were already inside a folder that went with it.`
+        ? fill(d.toast.redundantDetail, { count: result.redundant })
         : "";
     show(
       "done",
       what,
       // Said explicitly, because it is the thing people get wrong: the folder
       // is smaller, the disk is not. The Trash is on the same filesystem.
-      `${fmt.bytes(freed)} left this folder. Disk space comes back when you empty the Trash.${redundant}`,
+      `${fill(d.toast.freedDetail, { size: fmt.bytes(freed) })}${redundant}`,
     );
   }
 
@@ -656,14 +678,17 @@ function report(
     show(
       "failed",
       result.failed.length === 1
-        ? `${first?.name || "One entry"} stayed where it is`
-        : `${result.failed.length} of ${moved + result.failed.length} could not be moved`,
+        ? fill(d.toast.stayedOne, { name: first?.name || d.toast.stayedUnnamed })
+        : fill(d.toast.stayedMany, {
+            failed: result.failed.length,
+            total: moved + result.failed.length,
+          }),
       first?.reason,
     );
   }
 
   if (moved === 0 && result.failed.length === 0 && result.redundant > 0) {
-    show("info", "Nothing to move", "Everything selected was already gone.");
+    show("info", d.toast.nothingToMove, d.toast.nothingToMoveDetail);
   }
 }
 
@@ -721,19 +746,20 @@ function BasisSwitch({
   busy: boolean;
   onChange(basis: SizeBasis): void;
 }) {
+  const d = useDict();
   const options: SizeBasis[] = ["on_disk", "logical"];
   return (
-    <div className="basis" role="group" aria-label="Measure sizes by">
+    <div className="basis" role="group" aria-label={d.basis.measureBy}>
       {options.map((option) => (
         <button
           key={option}
           className={option === basis ? "on" : undefined}
           aria-pressed={option === basis}
           disabled={busy}
-          title={BASIS_NOTE[option]}
+          title={basisNote(option)}
           onClick={() => onChange(option)}
         >
-          {BASIS_LABEL[option]}
+          {basisLabel(option)}
         </button>
       ))}
     </div>
@@ -749,6 +775,7 @@ function CapacityChip({
   live: boolean;
   onRefresh(): void;
 }) {
+  const d = useDict();
   const free = capacity.total > 0 ? capacity.available / capacity.total : 0;
   const band = free < 0.05 ? "critical" : free < 0.12 ? "tight" : "";
   return (
@@ -757,31 +784,30 @@ function CapacityChip({
       onClick={onRefresh}
       disabled={!live}
       title={
-        live
-          ? "Free space on this filesystem. Click to measure it again."
-          : "Free space as it was when this snapshot was taken."
+        live ? d.capacity.liveTitle : d.capacity.snapshotTitle
       }
     >
       <span className="meter">
         <i style={{ width: `${Math.max(free * 100, 1.5)}%` }} />
       </span>
       <b>{fmt.bytes(capacity.available)}</b>
-      <span>free of {fmt.bytes(capacity.total)}</span>
+      <span>{fill(d.capacity.freeOf, { total: fmt.bytes(capacity.total) })}</span>
     </button>
   );
 }
 
 function Legend() {
+  const d = useDict();
   return (
     <div className="legend">
       {CATEGORIES.filter((name) => name !== "directory").map((name) => (
-        <span className="item" key={name} title={CATEGORY_NOTES[name]}>
+        <span className="item" key={name} title={categoryNote(name)}>
           <span className="swatch" style={{ background: categoryColor(name) }} />
           {name}
         </span>
       ))}
       <span style={{ flex: 1 }} />
-      <span>⠿ = more inside than shown</span>
+      <span>{d.map.moreInside}</span>
     </div>
   );
 }
@@ -792,14 +818,18 @@ function shortName(root: string): string {
 }
 
 function describe(opened: Opened, basis: SizeBasis) {
+  const d = dict();
   return (
     <>
       {opened.source.kind === "live" ? (
-        <span className="badge live">live scan</span>
+        <span className="badge live">{d.source.liveScan}</span>
       ) : (
         <>
           <span className="badge snapshot">
-            snapshot #{opened.source.scanId} · {fmt.relativeTime(opened.source.startedAt)}
+            {fill(d.source.snapshot, {
+              id: opened.source.scanId,
+              when: fmt.relativeTime(opened.source.startedAt),
+            })}
           </span>
           {opened.source.remote && (
             <span className="badge remote" title={opened.source.remote}>
@@ -819,17 +849,17 @@ function describe(opened: Opened, basis: SizeBasis) {
         <b className="num" style={{ color: "var(--text)" }}>
           {fmt.bytes(totalOf(opened, basis))}
         </b>{" "}
-        {BASIS_LABEL[basis].toLowerCase()} ·{" "}
+        {basisLabel(basis).toLocaleLowerCase()} ·{" "}
         <span className="num">
           {fmt.bytes(basis === "on_disk" ? opened.totalSize : opened.totalAlloc)}
         </span>{" "}
-        {basis === "on_disk" ? "logical" : "on disk"} ·{" "}
-        <span className="num">{fmt.count(opened.root.files)}</span> files ·{" "}
-        <span className="num">{fmt.count(opened.entries)}</span> entries
+        {basisLabel(basis === "on_disk" ? "logical" : "on_disk").toLocaleLowerCase()} ·{" "}
+        <span className="num">{fmt.count(opened.root.files)}</span> {d.source.files} ·{" "}
+        <span className="num">{fmt.count(opened.entries)}</span> {d.source.entries}
       </span>
       {opened.scanErrors > 0 && (
-        <span className="badge warn" title="Paths that could not be read are counted, not skipped">
-          {fmt.count(opened.scanErrors)} unreadable
+        <span className="badge warn" title={d.source.unreadableTitle}>
+          {fill(d.source.unreadable, { count: fmt.count(opened.scanErrors) })}
         </span>
       )}
     </>
@@ -857,6 +887,7 @@ function Welcome({
   onSnapshots(): void;
   onRemote(): void;
 }) {
+  const d = useDict();
   const [points, setPoints] = useState<StartingPoints | null>(null);
 
   useEffect(() => {
@@ -879,17 +910,16 @@ function Welcome({
   return (
     <div className="welcome">
       <div className="welcome-inner">
-        <h1>See what is filling your disks</h1>
-        <p>
-          Scan a folder here, open a snapshot you took earlier, or read one
-          straight off an agent running on a server or NAS.
-        </p>
+        <h1>{d.welcome.headline}</h1>
+        <p>{d.welcome.lede}</p>
 
         {volume && (
           <div className={`volume ${band}`}>
             <div className="head">
-              <b>{fmt.bytes(volume.available)} free</b>
-              <span>of {fmt.bytes(volume.total)} on this filesystem</span>
+              <b>{fill(d.welcome.free, { size: fmt.bytes(volume.available) })}</b>
+              <span>
+                {fill(d.welcome.ofTotal, { total: fmt.bytes(volume.total) })}
+              </span>
             </div>
             <div className="meter">
               <i style={{ width: `${Math.max(free * 100, 1.5)}%` }} />
@@ -927,18 +957,14 @@ function Welcome({
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="primary" onClick={onScan} disabled={busy}>
-            Scan another folder…
+            {d.welcome.scanAnother}
           </button>
-          <button onClick={onSnapshots}>Stored snapshots</button>
-          <button onClick={onRemote}>Remote agent</button>
+          <button onClick={onSnapshots}>{d.welcome.storedSnapshots}</button>
+          <button onClick={onRemote}>{d.welcome.remoteAgent}</button>
         </div>
 
         <p className="hint" style={{ marginTop: 22, maxWidth: "60ch" }}>
-          Scanning only reads. Nothing on the disks you scan is changed unless
-          you explicitly move something to the Trash, and that is only possible
-          on a live scan of this machine. The app keeps one note of its own: how
-          many entries each folder had last time, so the next scan of it can
-          show a real percentage.
+          {d.welcome.promise}
         </p>
       </div>
     </div>

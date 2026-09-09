@@ -1,5 +1,14 @@
-// Formatting helpers. Deliberately matching the CLI's output so a number seen
-// in the terminal and the same number seen here read identically.
+// Formatting helpers.
+//
+// Two rules pull in opposite directions here and both are kept.
+//
+// Numbers a person *reads as prose* follow their language: a decimal comma in
+// German, "vor 3 Stunden" instead of "3 h ago". Numbers that are meant to line
+// up with what the command line prints do not — digit grouping stays a plain
+// space in every language, which is both locale-neutral and what the CLI emits,
+// so a figure seen in a terminal and the same figure seen here still match.
+
+import { dict, locale } from "./i18n";
 
 const BINARY_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"] as const;
 
@@ -14,7 +23,12 @@ export function bytes(value: number): string {
     unit += 1;
   }
   const digits = unit === 0 ? 0 : 1;
-  return `${negative ? "-" : ""}${n.toFixed(digits)} ${BINARY_UNITS[unit]}`;
+  // The unit symbols are international; only the decimal separator moves.
+  const number = new Intl.NumberFormat(locale(), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(n);
+  return `${negative ? "-" : ""}${number} ${BINARY_UNITS[unit]}`;
 }
 
 /** Always signed, so a column of changes scans well. */
@@ -23,8 +37,15 @@ export function delta(value: number): string {
   return `${value < 0 ? "−" : "+"}${formatted}`;
 }
 
+/**
+ * Grouped with spaces, in every language.
+ *
+ * Not localised on purpose: a space is unambiguous everywhere, while a comma
+ * and a full stop swap meanings between English and German, and this is the
+ * number a reader is most likely to compare against `spacetrace ls` output.
+ */
 export function count(value: number): string {
-  return value.toLocaleString("en-US").replace(/,/g, " ");
+  return value.toLocaleString("en-US").replace(/,/g, " ");
 }
 
 /** Unix seconds as `YYYY-MM-DD HH:MM`, matching the CLI. */
@@ -37,18 +58,34 @@ export function timestamp(unixSeconds: number): string {
   );
 }
 
+/**
+ * "3 hours ago", in the reader's language.
+ *
+ * `Intl.RelativeTimeFormat` rather than a table of suffixes: the plural rules
+ * and the word order differ across the five languages, and the browser already
+ * knows all of them.
+ */
 export function relativeTime(unixSeconds: number): string {
   const seconds = Math.floor(Date.now() / 1000) - unixSeconds;
-  if (seconds < 90) return "just now";
+  if (seconds < 90) return dict().time.justNow;
+
+  const relative = new Intl.RelativeTimeFormat(locale(), { numeric: "always" });
   const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return `${minutes} min ago`;
+  if (minutes < 90) return relative.format(-minutes, "minute");
   const hours = Math.round(minutes / 60);
-  if (hours < 36) return `${hours} h ago`;
+  if (hours < 36) return relative.format(-hours, "hour");
   const days = Math.round(hours / 24);
-  if (days < 45) return `${days} d ago`;
-  return `${Math.round(days / 30)} mo ago`;
+  if (days < 45) return relative.format(-days, "day");
+  return relative.format(-Math.round(days / 30), "month");
 }
 
+/**
+ * Elapsed time while work is running.
+ *
+ * Unit letters, not words: this updates several times a second next to a
+ * progress bar, and a sentence that changes length on every tick makes the row
+ * jump. The letters are the same in all five languages.
+ */
 export function duration(ms: number): string {
   if (ms < 1000) return `${ms} ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
@@ -64,7 +101,11 @@ export function ellipsize(text: string, max: number): string {
 }
 
 export function percent(part: number, whole: number): string {
-  if (whole <= 0) return "0%";
-  const value = (part / whole) * 100;
-  return value >= 10 ? `${value.toFixed(0)}%` : `${value.toFixed(1)}%`;
+  const value = whole <= 0 ? 0 : (part / whole) * 100;
+  const digits = value >= 10 || value === 0 ? 0 : 1;
+  return new Intl.NumberFormat(locale(), {
+    style: "percent",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value / 100);
 }

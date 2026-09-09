@@ -389,7 +389,47 @@ export const api = {
   defaultDatabase(): Promise<string> {
     return call("default_database");
   },
+
+  /** What this build is: version, commit, build date, channel. */
+  buildInfo(): Promise<BuildInfo> {
+    return call("build_info");
+  },
+
+  /**
+   * The app's own changelog, already in `locale`.
+   *
+   * Resolved in Rust rather than shipped to the window in all five languages:
+   * only one of them is ever displayed, and the entries are compiled into the
+   * binary either way.
+   */
+  changelog(locale: string): Promise<ChangelogRelease[]> {
+    return call("changelog", { locale });
+  },
 };
+
+export interface BuildInfo {
+  version: string;
+  /** Short commit hash, or `unknown` for a build outside CI. */
+  commit: string;
+  built: string;
+  /** `release`, `continuous` or `dev`. */
+  channel: string;
+  isRelease: boolean;
+}
+
+export interface ChangelogEntry {
+  /** A stable code the window translates: `added`, `fixed`, and so on. */
+  kind: string;
+  text: string;
+}
+
+export interface ChangelogRelease {
+  /** Empty for work that has landed but is not in a release yet. */
+  version: string;
+  date: string;
+  published: boolean;
+  entries: ChangelogEntry[];
+}
 
 /**
  * Subscribe to reports from whatever scan is running.

@@ -7,6 +7,7 @@
 // which cannot use a CSS variable, still gets the same answer.
 
 import type { Category } from "./api";
+import { dict } from "./i18n";
 
 /** Declaration order must match `Category` in src-tauri/src/lib.rs. */
 export const CATEGORIES: readonly Category[] = [
@@ -22,19 +23,16 @@ export const CATEGORIES: readonly Category[] = [
   "other",
 ];
 
-/** What each category tends to be, for the legend and the inspector. */
-export const CATEGORY_NOTES: Record<Category, string> = {
-  directory: "folder",
-  image: "photos and graphics",
-  video: "video files",
-  audio: "music and audio",
-  document: "documents and text",
-  archive: "archives and disk images",
-  code: "source and config",
-  binary: "executables and libraries",
-  cache: "logs, caches and temporary files",
-  other: "everything else",
-};
+/**
+ * What each category tends to hold, for the legend and the inspector.
+ *
+ * The category *names* are not translated: they are the identifiers the
+ * scanner uses, and the legend, the tooltip and the API have to agree about
+ * them. Only the explanation moves.
+ */
+export function categoryNote(name: Category): string {
+  return dict().categories[name];
+}
 
 /**
  * Resolved once, on first use. Custom properties are only readable after the

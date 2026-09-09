@@ -526,6 +526,11 @@ async fn scan_directory(
         one_filesystem: req.one_file_system,
         max_depth: req.depth,
         dedupe_hardlinks: !req.no_dedupe,
+        // On by default, like the CLI. An APFS clone has its own inode and
+        // nlink 1, but its blocks are on the disk once — counting it twice
+        // would answer "how much room does this take" wrongly, which is the
+        // one question the app exists to answer.
+        dedupe_clones: true,
     };
 
     let progress = Arc::new(ScanProgress::default());
@@ -1704,6 +1709,93 @@ fn default_database() -> String {
         .into_owned()
 }
 
+// ------------------------------------------------------------ about the app
+
+/// What this build is, for the About panel and for an update check.
+///
+/// The version alone cannot answer "which build am I running": every
+/// continuous build reports the same number. The commit and the channel come
+/// from `spacetrace-buildinfo`, which the release workflow stamps in.
+#[derive(Serialize)]
+pub struct BuildInfo {
+    version: &'static str,
+    commit: &'static str,
+    built: &'static str,
+    channel: &'static str,
+    /// False for a development or continuous build. An update check has
+    /// nothing to compare against on those, and telling their user to upgrade
+    /// would be wrong.
+    is_release: bool,
+}
+
+#[tauri::command]
+fn build_info() -> BuildInfo {
+    BuildInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        commit: spacetrace_buildinfo::GIT_SHA,
+        built: spacetrace_buildinfo::BUILD_DATE,
+        channel: spacetrace_buildinfo::CHANNEL,
+        is_release: spacetrace_buildinfo::is_release(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct ChangelogEntry {
+    /// A stable code, not a label: the window translates it. Adding a seventh
+    /// kind must not leave an entry rendered under no heading.
+    kind: &'static str,
+    text: String,
+}
+
+#[derive(Serialize)]
+pub struct ChangelogRelease {
+    /// Empty for entries that have landed but are not in a release yet.
+    version: String,
+    date: String,
+    published: bool,
+    entries: Vec<ChangelogEntry>,
+}
+
+/// The desktop app's own changelog, in the window's language.
+///
+/// Compiled in rather than fetched. The moment this is most likely to be read
+/// is right after the app has updated itself, which is also a moment it may
+/// have no network — and a blank "what's new" is worse than none.
+#[tauri::command]
+fn changelog(locale: String) -> Vec<ChangelogRelease> {
+    use spacetrace_changelog::{changelog, Component};
+
+    let log = changelog().component(Component::Desktop);
+    let view = |entries: &[spacetrace_changelog::Entry]| -> Vec<ChangelogEntry> {
+        entries
+            .iter()
+            .map(|entry| ChangelogEntry {
+                kind: entry.kind.slug(),
+                text: entry.localized(&locale).to_string(),
+            })
+            .collect()
+    };
+
+    let mut out = Vec::with_capacity(log.releases.len() + 1);
+    if !log.unreleased.is_empty() {
+        out.push(ChangelogRelease {
+            version: String::new(),
+            date: String::new(),
+            published: false,
+            entries: view(&log.unreleased),
+        });
+    }
+    for release in &log.releases {
+        out.push(ChangelogRelease {
+            version: release.version.clone(),
+            date: release.date.clone(),
+            published: release.published,
+            entries: view(&release.entries),
+        });
+    }
+    out
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1731,6 +1823,8 @@ pub fn run() {
             remote_snapshots,
             open_remote_snapshot,
             default_database,
+            build_info,
+            changelog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the spacetrace desktop app");

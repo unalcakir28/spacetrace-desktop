@@ -3702,6 +3702,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacetrace-buildinfo"
+version = "0.1.0"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
+
+[[package]]
+name = "spacetrace-changelog"
+version = "0.1.0"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "spacetrace-desktop"
 version = "0.1.0"
 dependencies = [
@@ -3709,6 +3723,8 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "spacetrace-buildinfo",
+ "spacetrace-changelog",
  "spacetrace-diff",
  "spacetrace-scan-core",
  "spacetrace-store",
@@ -3725,7 +3741,7 @@ dependencies = [
 [[package]]
 name = "spacetrace-diff"
 version = "0.1.0"
-source = "git+https://github.com/unalcakir28/spacetrace#0d016fda4da7806612af7b278e245166a5ae404f"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
 dependencies = [
  "serde",
  "spacetrace-scan-core",
@@ -3734,7 +3750,7 @@ dependencies = [
 [[package]]
 name = "spacetrace-scan-core"
 version = "0.1.0"
-source = "git+https://github.com/unalcakir28/spacetrace#0d016fda4da7806612af7b278e245166a5ae404f"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
 dependencies = [
  "libc",
  "rayon",
@@ -3745,7 +3761,7 @@ dependencies = [
 [[package]]
 name = "spacetrace-store"
 version = "0.1.0"
-source = "git+https://github.com/unalcakir28/spacetrace#0d016fda4da7806612af7b278e245166a5ae404f"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
 dependencies = [
  "anyhow",
  "gethostname",
@@ -3758,7 +3774,7 @@ dependencies = [
 [[package]]
 name = "spacetrace-treemap"
 version = "0.1.0"
-source = "git+https://github.com/unalcakir28/spacetrace#0d016fda4da7806612af7b278e245166a5ae404f"
+source = "git+https://github.com/unalcakir28/spacetrace#c5d0e50e99573bd044ff7d3a1e9249a4a521b7f9"
 dependencies = [
  "serde",
  "spacetrace-scan-core",

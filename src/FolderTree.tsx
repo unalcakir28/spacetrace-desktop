@@ -44,6 +44,7 @@ import {
 import { divergence, measure, type SizeBasis } from "./basis";
 import { categoryColor } from "./categories";
 import * as fmt from "./format";
+import { fill, useDict } from "./i18n";
 
 /** How many children to list per directory; deeper ones are rarely useful. */
 const CHILD_LIMIT = 200;
@@ -97,6 +98,7 @@ export function FolderTree({
   onSelectionChange,
   onContextMenu,
 }: FolderTreeProps) {
+  const d = useDict();
   const [expanded, setExpanded] = useState<Set<number>>(new Set([root.node]));
   const [childrenOf, setChildrenOf] = useState<Map<number, EntryView[]>>(new Map());
   const [loading, setLoading] = useState<Set<number>>(new Set());
@@ -365,7 +367,10 @@ export function FolderTree({
             {sparse && (
               <i
                 className="sparse-mark"
-                title={`Sparse: ${fmt.bytes(entry.size)} claimed, ${fmt.bytes(entry.alloc)} allocated`}
+                title={fill(d.tree.sparseTitle, {
+                  claimed: fmt.bytes(entry.size),
+                  allocated: fmt.bytes(entry.alloc),
+                })}
               >
                 ~
               </i>

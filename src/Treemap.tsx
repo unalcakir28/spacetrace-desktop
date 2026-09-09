@@ -22,6 +22,7 @@ import { api, errorMessage, isStale, type TileArrays } from "./api";
 import type { SizeBasis } from "./basis";
 import { colorByIndex } from "./categories";
 import * as fmt from "./format";
+import { fill, useDict } from "./i18n";
 
 /** A tile narrower or shorter than this cannot hold readable text. */
 const LABEL_MIN_WIDTH = 56;
@@ -84,6 +85,7 @@ export function Treemap({
   onSelect,
   onZoom,
 }: TreemapProps) {
+  const d = useDict();
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -399,7 +401,8 @@ export function Treemap({
             )}
             <span className="num">
               {fmt.bytes(tooltip.detail.size)}
-              {tooltip.detail.isDir && ` · ${fmt.count(tooltip.detail.files)} files`}
+              {tooltip.detail.isDir &&
+                ` · ${fill(d.map.tooltipFiles, { count: fmt.count(tooltip.detail.files) })}`}
             </span>
           </div>
         </div>
@@ -407,7 +410,7 @@ export function Treemap({
       {error && <div className="map-overlay">{error}</div>}
       {!error && busy && !tiles && (
         <div className="map-overlay">
-          <span className="spinner" /> laying out…
+          <span className="spinner" /> {d.map.layingOut}
         </div>
       )}
       {!error && !busy && tiles?.count === 1 && (

@@ -16,22 +16,26 @@
 import { useCallback, useState } from "react";
 
 import type { EntryView, Opened, SizeBasis } from "./api";
+import { dict } from "./i18n";
 
 export type { SizeBasis };
 
 /** What a fresh window uses until the person says otherwise. */
 export const DEFAULT_BASIS: SizeBasis = "on_disk";
 
-export const BASIS_LABEL: Record<SizeBasis, string> = {
-  on_disk: "On disk",
-  logical: "Logical",
-};
+/**
+ * Functions rather than the constant maps these used to be: the text now
+ * depends on the chosen language, and a module-level map would be frozen at
+ * whatever language the window started in.
+ */
+export function basisLabel(basis: SizeBasis): string {
+  return basis === "on_disk" ? dict().basis.onDisk : dict().basis.logical;
+}
 
 /** Said in full where there is room for it, so the switch is not a mystery. */
-export const BASIS_NOTE: Record<SizeBasis, string> = {
-  on_disk: "Blocks actually allocated, including what folders themselves cost. This is the measure that adds up to the space missing from the disk.",
-  logical: "The length each file reports. Sparse files claim more than they hold, so this can overstate a disk by a long way.",
-};
+export function basisNote(basis: SizeBasis): string {
+  return basis === "on_disk" ? dict().basis.onDiskNote : dict().basis.logicalNote;
+}
 
 /** The short word for the other measure, for a row that names both. */
 export const OTHER_BASIS: Record<SizeBasis, SizeBasis> = {
@@ -68,10 +72,9 @@ export function divergence(entry: EntryView): Divergence {
   return null;
 }
 
-export const DIVERGENCE_NOTE: Record<"sparse" | "rounded", string> = {
-  sparse: "A sparse file: it reports a length it has not allocated, so it takes far less room than it claims.",
-  rounded: "Files are allocated in whole blocks, so this occupies a little more than its length.",
-};
+export function divergenceNote(kind: "sparse" | "rounded"): string {
+  return kind === "sparse" ? dict().basis.sparseNote : dict().basis.roundedNote;
+}
 
 const STORAGE_KEY = "spacetrace.basis";
 

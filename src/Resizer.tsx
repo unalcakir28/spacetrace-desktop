@@ -11,6 +11,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { fill, useDict } from "./i18n";
+
 export interface PaneWidths {
   sidebar: number;
   inspector: number;
@@ -92,6 +94,7 @@ export function Resizer({
   onResize,
   onReset,
 }: ResizerProps) {
+  const d = useDict();
   const [dragging, setDragging] = useState(false);
   const start = useRef({ x: 0, width: 0 });
 
@@ -147,7 +150,7 @@ export function Resizer({
       aria-valuemin={LIMITS[pane].min}
       aria-valuemax={LIMITS[pane].max}
       tabIndex={0}
-      title={`${label} — drag, or double-click to reset`}
+      title={fill(d.tree.resizeHint, { label })}
       onKeyDown={onKeyDown}
       onMouseDown={(event) => {
         // Only the primary button, and never a text selection alongside it.

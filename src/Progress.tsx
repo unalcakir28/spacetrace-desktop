@@ -12,6 +12,7 @@
 // delete, which knows exactly how many entries it was given, shows a real one.
 
 import * as fmt from "./format";
+import { dict, fill, plural, useDict } from "./i18n";
 
 export interface Working {
   /**
@@ -53,6 +54,7 @@ export function Progress({
   onStop,
   stopping,
 }: Working) {
+  const d = useDict();
   const determinate = fraction !== null && fraction !== undefined;
   const percent = determinate ? Math.round(fraction * 100) : 0;
 
@@ -62,7 +64,7 @@ export function Progress({
         {determinate && <span className="pct">{percent}%</span>}
         <span className="doing">
           {doing}
-          {stopping ? " — stopping" : "…"}
+          {stopping ? ` — ${d.progress.stopping}` : "…"}
         </span>
         {basis && <span className="basis">{basis}</span>}
       </div>
@@ -78,7 +80,7 @@ export function Progress({
         )}
         {onStop && (
           <button className="ghost" onClick={onStop} disabled={stopping}>
-            {stopping ? "Stopping…" : "Stop"}
+            {stopping ? d.progress.stopInProgress : d.progress.stop}
           </button>
         )}
       </div>
@@ -97,10 +99,9 @@ export function Progress({
 }
 
 /** What the estimate rests on, said plainly. Keys match `EstimateBasis` in lib.rs. */
-const SCAN_BASIS: Record<string, string> = {
-  last_scan: "estimated from your last scan of this folder",
-  none: "first scan of this folder, so there is nothing to estimate against",
-};
+function scanBasis(key: string | null): string {
+  return key === "last_scan" ? dict().progress.fromLastScan : dict().progress.firstScan;
+}
 
 /** Turn a scan's report into something the strip can show. */
 export function scanWorking(
@@ -109,20 +110,25 @@ export function scanWorking(
   onStop: () => void,
   stopping?: boolean,
 ): Working {
+  const d = dict();
+  const doing = fill(d.progress.scanning, { folder: label });
   if (!tick) {
-    return { kind: "scan", doing: `Scanning ${label}`, onStop, stopping };
+    return { kind: "scan", doing, onStop, stopping };
   }
   return {
     kind: "scan",
-    doing: `Scanning ${label}`,
+    doing,
     fraction: tick.fraction,
-    basis: SCAN_BASIS[tick.basis ?? "none"],
+    basis: scanBasis(tick.basis),
     counters: [
-      `${fmt.count(tick.files + tick.dirs)} entries`,
+      fill(d.progress.entries, { count: fmt.count(tick.files + tick.dirs) }),
       fmt.bytes(tick.bytes),
       fmt.duration(tick.elapsedMs),
     ],
-    warning: tick.errors > 0 ? `${fmt.count(tick.errors)} unreadable` : undefined,
+    warning:
+      tick.errors > 0
+        ? fill(d.progress.unreadable, { count: fmt.count(tick.errors) })
+        : undefined,
     onStop,
     stopping,
   };
@@ -137,11 +143,12 @@ export function scanWorking(
  * the same answer the first scan of a folder gets.
  */
 export function saveWorking(entries: number): Working {
+  const d = dict();
   return {
     kind: "save",
-    doing: "Storing this scan",
-    counters: [`${entries.toLocaleString("en-US").replace(/,/g, " ")} entries`],
-    basis: "written in one transaction, so it cannot report progress",
+    doing: d.progress.storing,
+    counters: [fill(d.progress.entries, { count: fmt.count(entries) })],
+    basis: d.progress.oneTransaction,
   };
 }
 
@@ -150,17 +157,19 @@ export function trashWorking(
   total: number,
   tick: { done: number; total: number; name: string } | null,
 ): Working {
-  const label = total === 1 ? "1 item" : `${total} items`;
+  const d = dict();
+  // Pluralised by the language's own rules rather than by `total === 1`:
+  // Turkish has one form where English has two, and French counts zero as
+  // singular.
+  const many = plural(total, d.progress.movingCount);
   if (!tick || tick.total === 0) {
-    return { kind: "trash", doing: `Moving ${label} to the Trash` };
+    return { kind: "trash", doing: many };
   }
   return {
     kind: "trash",
-    doing: tick.name
-      ? `Moving ${tick.name} to the Trash`
-      : `Moving ${label} to the Trash`,
+    doing: tick.name ? fill(d.progress.movingNamed, { name: tick.name }) : many,
     // Unlike a scan, this was handed a list, so the denominator is exact.
     fraction: tick.done / tick.total,
-    counters: [`${tick.done} of ${tick.total}`],
+    counters: [fill(d.progress.doneOf, { done: tick.done, total: tick.total })],
   };
 }
