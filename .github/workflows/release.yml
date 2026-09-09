@@ -356,7 +356,9 @@ jobs:
           | Fedora / RHEL | \`.rpm\` |
           | Any Linux | \`.AppImage\` |
 
-          **Not code-signed.** macOS: right-click the app and choose *Open*, or
+          **Not code-signed.** macOS: double-click once, then *System Settings →
+          Privacy & Security → Open Anyway* within the hour — the right-click
+          *Open* shortcut was removed in macOS 15. If that button never appears,
           run \`xattr -dr com.apple.quarantine /Applications/spacetrace.app\`.
           Windows: *More info* then *Run anyway* on the SmartScreen prompt.
 
