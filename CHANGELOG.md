@@ -14,6 +14,7 @@ because anyone can install them.
 
 ### Added
 
+- Error messages are in your language too. What the operating system says — Permission denied and the like — stays in its own words, because those are the words that help when you search for them.
 - The app checks for a newer release when it starts and offers to install it. Nothing is downloaded until you ask for it. On macOS the app is still unsigned, so the system may ask you to confirm it again after an update.
 - The app speaks five languages: English, Turkish, Italian, French and German. It follows your system's language on first launch, and the choice can be changed at any time.
 - A panel showing which version and which build you are running, plus what changed in recent releases. It works offline: the changelog is compiled into the app itself.

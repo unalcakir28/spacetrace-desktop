@@ -32,6 +32,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use spacetrace_scan_core::{
     capacity_of, scan, Capacity, EntryKind, NodeId, ScanOptions, ScanProgress, ScanStats,
@@ -41,6 +42,7 @@ use spacetrace_store::{ScanMeta, Store};
 use spacetrace_treemap::{layout, LayoutOptions, Rect};
 use tauri::Emitter;
 
+mod error;
 mod hints;
 mod remote;
 
@@ -127,21 +129,23 @@ pub struct AppState {
 
 /// Returned when a request carries ids from a tree that is no longer open.
 /// Callers are expected to recognise it and simply drop the result.
-pub const STALE_GENERATION: &str = "stale-generation";
+pub const STALE_GENERATION: &str = "stale_generation";
 
 /// Returned by a scan the user stopped. Not a failure: the UI puts the previous
 /// view back rather than showing an error nobody needs to read.
-pub const SCAN_CANCELLED: &str = "scan-cancelled";
+pub const SCAN_CANCELLED: &str = "scan_cancelled";
 
 impl AppState {
     /// Read the open tree without caring which one it is. Only for commands
     /// that take no node id.
     fn with_tree<T>(
         &self,
-        f: impl FnOnce(&Tree, &Source) -> Result<T, String>,
-    ) -> Result<T, String> {
+        f: impl FnOnce(&Tree, &Source) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard.as_ref().ok_or("nothing is open yet")?;
+        let loaded = guard
+            .as_ref()
+            .ok_or_else(|| AppError::new("nothing_open"))?;
         f(&loaded.tree, &loaded.source)
     }
 
@@ -149,12 +153,14 @@ impl AppState {
     fn with_tree_at<T>(
         &self,
         generation: u64,
-        f: impl FnOnce(&Tree, &Source) -> Result<T, String>,
-    ) -> Result<T, String> {
+        f: impl FnOnce(&Tree, &Source) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard.as_ref().ok_or("nothing is open yet")?;
+        let loaded = guard
+            .as_ref()
+            .ok_or_else(|| AppError::new("nothing_open"))?;
         if loaded.generation != generation {
-            return Err(STALE_GENERATION.to_string());
+            return Err(AppError::new(STALE_GENERATION));
         }
         f(&loaded.tree, &loaded.source)
     }
@@ -163,12 +169,14 @@ impl AppState {
     fn with_visible_at<T>(
         &self,
         generation: u64,
-        f: impl FnOnce(&Tree, &Source, &HashSet<NodeId>) -> Result<T, String>,
-    ) -> Result<T, String> {
+        f: impl FnOnce(&Tree, &Source, &HashSet<NodeId>) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard.as_ref().ok_or("nothing is open yet")?;
+        let loaded = guard
+            .as_ref()
+            .ok_or_else(|| AppError::new("nothing_open"))?;
         if loaded.generation != generation {
-            return Err(STALE_GENERATION.to_string());
+            return Err(AppError::new(STALE_GENERATION));
         }
         f(&loaded.tree, &loaded.source, &loaded.hidden)
     }
@@ -181,12 +189,14 @@ impl AppState {
     fn edit_tree_at<T>(
         &self,
         generation: u64,
-        f: impl FnOnce(&mut Loaded) -> Result<T, String>,
-    ) -> Result<T, String> {
+        f: impl FnOnce(&mut Loaded) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         let mut guard = self.current.write().map_err(|_| lock_poisoned())?;
-        let loaded = guard.as_mut().ok_or("nothing is open yet")?;
+        let loaded = guard
+            .as_mut()
+            .ok_or_else(|| AppError::new("nothing_open"))?;
         if loaded.generation != generation {
-            return Err(STALE_GENERATION.to_string());
+            return Err(AppError::new(STALE_GENERATION));
         }
         f(loaded)
     }
@@ -197,7 +207,7 @@ impl AppState {
         source: Source,
         capacity: Option<Capacity>,
         stats: Option<ScanStats>,
-    ) -> Result<u64, String> {
+    ) -> Result<u64, AppError> {
         let mut guard = self.current.write().map_err(|_| lock_poisoned())?;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         *guard = Some(Loaded {
@@ -216,7 +226,7 @@ impl AppState {
     /// Two scans at once would both be writing progress to the same window and
     /// only one could win the tree, so the older one is cancelled instead of
     /// being left to finish work nobody will see.
-    fn begin_scan(&self, progress: Arc<ScanProgress>) -> Result<u64, String> {
+    fn begin_scan(&self, progress: Arc<ScanProgress>) -> Result<u64, AppError> {
         let mut guard = self.running.lock().map_err(|_| lock_poisoned())?;
         if let Some(previous) = guard.take() {
             previous.progress.cancel();
@@ -237,7 +247,7 @@ impl AppState {
     }
 
     /// Ask the running scan to stop. Returns the scan that was asked.
-    fn cancel_running(&self) -> Result<Option<u64>, String> {
+    fn cancel_running(&self) -> Result<Option<u64>, AppError> {
         let guard = self.running.lock().map_err(|_| lock_poisoned())?;
         let Some(running) = guard.as_ref() else {
             return Ok(None);
@@ -247,8 +257,8 @@ impl AppState {
     }
 }
 
-fn lock_poisoned() -> String {
-    "internal state is unusable after an earlier panic; restart the app".to_string()
+fn lock_poisoned() -> AppError {
+    AppError::new("state_unusable")
 }
 
 // ------------------------------------------------------------------- views
@@ -515,11 +525,11 @@ async fn scan_directory(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     req: ScanRequest,
-) -> Result<Opened, String> {
+) -> Result<Opened, AppError> {
     let basis = req.basis;
     let path = PathBuf::from(&req.path);
     if !path.is_dir() {
-        return Err(format!("not a directory: {}", path.display()));
+        return Err(AppError::new("not_a_directory").with("path", path.display()));
     }
     let options = ScanOptions {
         exclude_names: req.exclude.clone(),
@@ -551,11 +561,15 @@ async fn scan_directory(
     state.end_scan(scan_id);
 
     let (tree, stats) = match result {
-        Err(joined) => return Err(format!("the scan thread did not finish: {joined}")),
+        Err(joined) => return Err(AppError::new("scan_thread_failed").detail(joined)),
         Ok(Err(err)) if err.kind() == std::io::ErrorKind::Interrupted => {
-            return Err(SCAN_CANCELLED.to_string())
+            return Err(AppError::new(SCAN_CANCELLED))
         }
-        Ok(Err(err)) => return Err(format!("cannot scan {}: {err:#}", path.display())),
+        Ok(Err(err)) => {
+            return Err(AppError::new("cannot_scan")
+                .with("path", path.display())
+                .detail(format!("{err:#}")))
+        }
         Ok(Ok(pair)) => pair,
     };
 
@@ -601,7 +615,7 @@ async fn scan_directory(
 fn refresh_capacity(
     state: tauri::State<'_, AppState>,
     generation: u64,
-) -> Result<Option<CapacityView>, String> {
+) -> Result<Option<CapacityView>, AppError> {
     state.edit_tree_at(generation, |loaded| {
         if !loaded.source.is_live() {
             return Ok(loaded.capacity.map(CapacityView::from));
@@ -618,7 +632,7 @@ fn refresh_capacity(
 /// Returns whether anything was actually asked to stop, so the button can say
 /// "stopping…" only when it means it.
 #[tauri::command]
-fn cancel_scan(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+fn cancel_scan(state: tauri::State<'_, AppState>) -> Result<bool, AppError> {
     Ok(state.cancel_running()?.is_some())
 }
 
@@ -735,20 +749,26 @@ fn save_snapshot(
     state: tauri::State<'_, AppState>,
     db: String,
     label: Option<String>,
-) -> Result<SavedSnapshot, String> {
+) -> Result<SavedSnapshot, AppError> {
     let trimmed = label
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty());
 
     let guard = state.current.read().map_err(|_| lock_poisoned())?;
-    let loaded = guard.as_ref().ok_or("nothing is open yet")?;
+    let loaded = guard
+        .as_ref()
+        .ok_or_else(|| AppError::new("nothing_open"))?;
     let stats = savable(loaded)?;
 
-    let mut store = Store::open(&db).map_err(|e| format!("cannot open {db}: {e:#}"))?;
+    let mut store = Store::open(&db).map_err(|e| {
+        AppError::new("cannot_open_database")
+            .with("db", &db)
+            .detail(format!("{e:#}"))
+    })?;
     let host = Store::local_host();
     let scan_id = store
         .save(&loaded.tree, stats, &host, trimmed.as_deref())
-        .map_err(|e| format!("cannot store the snapshot: {e:#}"))?;
+        .map_err(|e| AppError::new("cannot_store_snapshot").detail(format!("{e:#}")))?;
 
     Ok(SavedSnapshot {
         scan_id,
@@ -761,34 +781,32 @@ fn save_snapshot(
 ///
 /// Separated from the command so the three refusals can be tested without a
 /// Tauri runtime; each of them is a wrong snapshot rather than an inconvenience.
-fn savable(loaded: &Loaded) -> Result<&ScanStats, String> {
+fn savable(loaded: &Loaded) -> Result<&ScanStats, AppError> {
     if !loaded.source.is_live() {
-        return Err("this is already a stored snapshot; scan the folder to store a new one".into());
+        return Err(AppError::new("already_a_snapshot"));
     }
     // A tree that has been edited matches no moment on disk. `remove_subtree`
     // zeroes an entry rather than splicing it out, so saving now would store
     // phantom 0-byte entries that are not there, stamped with the scan's start
     // time. A fresh scan is the honest record of what is left after a cleanup.
     if !loaded.hidden.is_empty() {
-        return Err(
-            "entries were moved to the Trash since this scan, so it no longer matches the disk — \
-             rescan to store the result"
-                .into(),
-        );
+        return Err(AppError::new("edited_since_scan"));
     }
     loaded
         .stats
         .as_ref()
-        .ok_or_else(|| "this scan's counters are not available, so it cannot be stored".into())
+        .ok_or_else(|| AppError::new("counters_unavailable"))
 }
 
 /// Snapshots stored in a database file.
 #[tauri::command]
-async fn list_snapshots(db: String) -> Result<Vec<ScanMeta>, String> {
+async fn list_snapshots(db: String) -> Result<Vec<ScanMeta>, AppError> {
     blocking(move || {
-        Store::open(&db)
-            .and_then(|s| s.list())
-            .map_err(|e| format!("cannot read {db}: {e:#}"))
+        Store::open(&db).and_then(|s| s.list()).map_err(|e| {
+            AppError::new("cannot_read_database")
+                .with("db", &db)
+                .detail(format!("{e:#}"))
+        })
     })
     .await
 }
@@ -800,13 +818,19 @@ async fn open_snapshot(
     db: String,
     scan_id: i64,
     basis: Option<SizeBasis>,
-) -> Result<Opened, String> {
+) -> Result<Opened, AppError> {
     let basis = basis.unwrap_or_default();
     let loaded = blocking(move || {
-        let store = Store::open(&db).map_err(|e| format!("cannot open {db}: {e:#}"))?;
-        store
-            .load(scan_id)
-            .map_err(|e| format!("cannot load snapshot #{scan_id}: {e:#}"))
+        let store = Store::open(&db).map_err(|e| {
+            AppError::new("cannot_open_database")
+                .with("db", &db)
+                .detail(format!("{e:#}"))
+        })?;
+        store.load(scan_id).map_err(|e| {
+            AppError::new("cannot_load_snapshot")
+                .with("id", scan_id)
+                .detail(format!("{e:#}"))
+        })
     })
     .await?;
     let (tree, meta) = loaded;
@@ -832,14 +856,14 @@ async fn open_snapshot(
 /// SQLite work and filesystem walks are blocking by nature, so they belong on
 /// the blocking pool rather than occupying an async worker that other commands
 /// are waiting on.
-async fn blocking<T, F>(work: F) -> Result<T, String>
+async fn blocking<T, F>(work: F) -> Result<T, AppError>
 where
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
     T: Send + 'static,
 {
     match tauri::async_runtime::spawn_blocking(work).await {
         Ok(result) => result,
-        Err(joined) => Err(format!("the operation did not finish: {joined}")),
+        Err(joined) => Err(AppError::new("operation_did_not_finish").detail(joined)),
     }
 }
 
@@ -920,10 +944,10 @@ pub struct TileArrays {
 /// Lay out a subtree. Returns tiles in draw order: a parent always precedes its
 /// own children, so painting the array in order puts children on top.
 #[tauri::command(async)]
-fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<TileArrays, String> {
+fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<TileArrays, AppError> {
     state.with_tree_at(req.generation, |tree, _| {
         if req.node as usize >= tree.len() {
-            return Err(format!("no entry {}", req.node));
+            return Err(AppError::new("no_entry").with("node", req.node));
         }
         let options = LayoutOptions {
             min_area: req.min_area.max(0.5),
@@ -976,7 +1000,7 @@ fn labels(
     state: tauri::State<'_, AppState>,
     generation: u64,
     nodes: Vec<NodeId>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, AppError> {
     state.with_tree_at(generation, |tree, _| {
         Ok(nodes
             .into_iter()
@@ -998,11 +1022,11 @@ fn entry(
     generation: u64,
     node: NodeId,
     basis: Option<SizeBasis>,
-) -> Result<EntryView, String> {
+) -> Result<EntryView, AppError> {
     let basis = basis.unwrap_or_default();
     state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
-            return Err(format!("no entry {node}"));
+            return Err(AppError::new("no_entry").with("node", node));
         }
         Ok(entry_view(tree, node, basis))
     })
@@ -1020,7 +1044,7 @@ fn entries(
     generation: u64,
     nodes: Vec<NodeId>,
     basis: Option<SizeBasis>,
-) -> Result<Vec<EntryView>, String> {
+) -> Result<Vec<EntryView>, AppError> {
     let basis = basis.unwrap_or_default();
     state.with_visible_at(generation, |tree, _, hidden| {
         Ok(nodes
@@ -1039,11 +1063,11 @@ fn children(
     node: NodeId,
     limit: Option<usize>,
     basis: Option<SizeBasis>,
-) -> Result<Vec<EntryView>, String> {
+) -> Result<Vec<EntryView>, AppError> {
     let basis = basis.unwrap_or_default();
     state.with_visible_at(generation, |tree, _, hidden| {
         if node as usize >= tree.len() {
-            return Err(format!("no entry {node}"));
+            return Err(AppError::new("no_entry").with("node", node));
         }
         let mut kids: Vec<EntryView> = tree
             .children_by(node, basis)
@@ -1068,11 +1092,11 @@ fn ancestors(
     generation: u64,
     node: NodeId,
     basis: Option<SizeBasis>,
-) -> Result<Vec<EntryView>, String> {
+) -> Result<Vec<EntryView>, AppError> {
     let basis = basis.unwrap_or_default();
     state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
-            return Err(format!("no entry {node}"));
+            return Err(AppError::new("no_entry").with("node", node));
         }
         Ok(ancestor_chain(tree, node, basis))
     })
@@ -1084,10 +1108,10 @@ fn absolute_path(
     state: tauri::State<'_, AppState>,
     generation: u64,
     node: NodeId,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     state.with_tree_at(generation, |tree, _| {
         if node as usize >= tree.len() {
-            return Err(format!("no entry {node}"));
+            return Err(AppError::new("no_entry").with("node", node));
         }
         Ok(tree.path(node).to_string_lossy().into_owned())
     })
@@ -1104,7 +1128,7 @@ async fn reveal(
     state: tauri::State<'_, AppState>,
     generation: u64,
     node: NodeId,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let path = live_path(&state, generation, node)?;
     blocking(move || reveal_path(&path)).await
 }
@@ -1128,7 +1152,8 @@ pub struct TrashedEntry {
 pub struct TrashFailure {
     pub node: NodeId,
     pub name: String,
-    pub reason: String,
+    /// Why this one stayed, as a code the window translates.
+    pub reason: AppError,
 }
 
 /// What the window needs to know after a Trash operation.
@@ -1184,11 +1209,11 @@ async fn move_to_trash(
     generation: u64,
     nodes: Vec<NodeId>,
     basis: Option<SizeBasis>,
-) -> Result<TrashOutcome, String> {
+) -> Result<TrashOutcome, AppError> {
     let basis = basis.unwrap_or_default();
     let plan = plan_trash(&state, generation, &nodes)?;
     if plan.targets.is_empty() && plan.failed.is_empty() {
-        return Err("nothing to move to the Trash".to_string());
+        return Err(AppError::new("nothing_to_trash"));
     }
 
     let total = plan.targets.len();
@@ -1210,10 +1235,12 @@ async fn move_to_trash(
             // Re-checked here rather than during planning: the tree is a
             // snapshot in time even when it was taken seconds ago.
             let outcome = if !target.path.exists() {
-                Err(format!("{} no longer exists", target.path.display()))
+                Err(AppError::new("no_longer_exists").with("path", target.path.display()))
             } else {
                 trash::delete(&target.path).map_err(|err| {
-                    format!("cannot move {} to the Trash: {err}", target.path.display())
+                    AppError::new("cannot_move_to_trash")
+                        .with("path", target.path.display())
+                        .detail(err)
                 })
             };
             results.push((target, outcome));
@@ -1229,7 +1256,7 @@ async fn move_to_trash(
         results
     })
     .await
-    .map_err(|joined| format!("the Trash operation did not finish: {joined}"))?;
+    .map_err(|joined| AppError::new("trash_did_not_finish").detail(joined))?;
 
     // Only now is the tree edited. Doing it first would leave the window
     // claiming files are gone when the delete had in fact failed.
@@ -1259,9 +1286,7 @@ async fn move_to_trash(
                             outcome.failed.push(TrashFailure {
                                 node: target.node,
                                 name: target.name,
-                                reason: "it is gone from the disk, but could not be taken out of \
-                                     the tree; rescan to be sure of the totals"
-                                    .to_string(),
+                                reason: AppError::new("gone_but_not_removed"),
                             });
                             continue;
                         };
@@ -1285,12 +1310,10 @@ async fn move_to_trash(
             Ok(outcome)
         })
         .map_err(|err| {
-            if err == STALE_GENERATION {
+            if err.code == STALE_GENERATION {
                 // The files are gone but the view moved on, so there is nothing
                 // left to patch. Say so rather than reporting a plain failure.
-                return "the entries were moved to the Trash, but a different scan was opened \
-                    while that happened, so this view could not be updated"
-                    .to_string();
+                return AppError::new("trashed_but_view_moved_on");
             }
             err
         })
@@ -1321,13 +1344,10 @@ fn plan_trash(
     state: &tauri::State<'_, AppState>,
     generation: u64,
     nodes: &[NodeId],
-) -> Result<TrashPlan, String> {
+) -> Result<TrashPlan, AppError> {
     state.with_visible_at(generation, |tree, source, hidden| {
         if !source.is_live() {
-            return Err(
-                "this is a stored snapshot, not the live filesystem; open a fresh scan to act on files"
-                    .to_string(),
-            );
+            return Err(AppError::new("snapshot_not_live"));
         }
 
         let selected: HashSet<NodeId> = nodes.iter().copied().collect();
@@ -1342,7 +1362,7 @@ fn plan_trash(
                 plan.failed.push(TrashFailure {
                     node,
                     name: String::new(),
-                    reason: format!("no entry {node}"),
+                    reason: AppError::new("no_entry").with("node", node),
                 });
                 continue;
             }
@@ -1351,7 +1371,7 @@ fn plan_trash(
                 plan.failed.push(TrashFailure {
                     node,
                     name,
-                    reason: "refusing to act on the scan root itself".to_string(),
+                    reason: AppError::new("refusing_scan_root"),
                 });
                 continue;
             }
@@ -1437,59 +1457,56 @@ fn live_path(
     state: &tauri::State<'_, AppState>,
     generation: u64,
     node: NodeId,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, AppError> {
     state.with_tree_at(generation, |tree, source| {
         if !source.is_live() {
-            return Err(
-                "this is a stored snapshot, not the live filesystem; open a fresh scan to act on files"
-                    .to_string(),
-            );
+            return Err(AppError::new("snapshot_not_live"));
         }
         if node as usize >= tree.len() {
-            return Err(format!("no entry {node}"));
+            return Err(AppError::new("no_entry").with("node", node));
         }
         if node == tree.root() {
-            return Err("refusing to act on the scan root itself".to_string());
+            return Err(AppError::new("refusing_scan_root"));
         }
         Ok(tree.path(node))
     })
 }
 
 #[cfg(target_os = "macos")]
-fn reveal_path(path: &Path) -> Result<(), String> {
+fn reveal_path(path: &Path) -> Result<(), AppError> {
     std::process::Command::new("open")
         .arg("-R")
         .arg(path)
         .status()
-        .map_err(|e| format!("cannot open Finder: {e}"))
+        .map_err(|e| AppError::new("cannot_open_file_manager").detail(e))
         .and_then(status_ok)
 }
 
 #[cfg(target_os = "windows")]
-fn reveal_path(path: &Path) -> Result<(), String> {
+fn reveal_path(path: &Path) -> Result<(), AppError> {
     std::process::Command::new("explorer")
         .arg(format!("/select,{}", path.display()))
         .status()
-        .map_err(|e| format!("cannot open Explorer: {e}"))
+        .map_err(|e| AppError::new("cannot_open_file_manager").detail(e))
         .and_then(status_ok)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn reveal_path(path: &Path) -> Result<(), String> {
+fn reveal_path(path: &Path) -> Result<(), AppError> {
     // No portable "select this file" on Linux, so open the containing folder.
     let target = path.parent().unwrap_or(path);
     std::process::Command::new("xdg-open")
         .arg(target)
         .status()
-        .map_err(|e| format!("cannot open the file manager: {e}"))
+        .map_err(|e| AppError::new("cannot_open_file_manager").detail(e))
         .and_then(status_ok)
 }
 
-fn status_ok(status: std::process::ExitStatus) -> Result<(), String> {
+fn status_ok(status: std::process::ExitStatus) -> Result<(), AppError> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("the file manager exited with {status}"))
+        Err(AppError::new("file_manager_failed").with("status", status))
     }
 }
 
@@ -1526,15 +1543,23 @@ async fn diff_snapshots(
     to: i64,
     min_delta: Option<u64>,
     include_files: Option<bool>,
-) -> Result<DiffView, String> {
+) -> Result<DiffView, AppError> {
     blocking(move || {
-        let store = Store::open(&db).map_err(|e| format!("cannot open {db}: {e:#}"))?;
-        let (old_tree, old_meta) = store
-            .load(from)
-            .map_err(|e| format!("cannot load snapshot #{from}: {e:#}"))?;
-        let (new_tree, new_meta) = store
-            .load(to)
-            .map_err(|e| format!("cannot load snapshot #{to}: {e:#}"))?;
+        let store = Store::open(&db).map_err(|e| {
+            AppError::new("cannot_open_database")
+                .with("db", &db)
+                .detail(format!("{e:#}"))
+        })?;
+        let (old_tree, old_meta) = store.load(from).map_err(|e| {
+            AppError::new("cannot_load_snapshot")
+                .with("id", from)
+                .detail(format!("{e:#}"))
+        })?;
+        let (new_tree, new_meta) = store.load(to).map_err(|e| {
+            AppError::new("cannot_load_snapshot")
+                .with("id", to)
+                .detail(format!("{e:#}"))
+        })?;
 
         let options = spacetrace_diff::DiffOptions {
             min_delta: min_delta.unwrap_or(1024 * 1024),
@@ -1570,10 +1595,10 @@ async fn diff_snapshots(
 
 /// Snapshots held by an agent.
 #[tauri::command]
-async fn remote_snapshots(url: String, token: String) -> Result<Vec<ScanMeta>, String> {
+async fn remote_snapshots(url: String, token: String) -> Result<Vec<ScanMeta>, AppError> {
     remote::list(&url, &token)
         .await
-        .map_err(|e| format!("{e:#}"))
+        .map_err(|e| AppError::new("remote_failed").detail(format!("{e:#}")))
 }
 
 /// Download a remote snapshot and open it, exactly as a local one would be.
@@ -1584,11 +1609,11 @@ async fn open_remote_snapshot(
     token: String,
     scan_id: i64,
     basis: Option<SizeBasis>,
-) -> Result<Opened, String> {
+) -> Result<Opened, AppError> {
     let basis = basis.unwrap_or_default();
     let (tree, meta) = remote::fetch(&url, &token, scan_id)
         .await
-        .map_err(|e| format!("{e:#}"))?;
+        .map_err(|e| AppError::new("remote_failed").detail(format!("{e:#}")))?;
     let capacity = snapshot_capacity(&meta);
     let source = snapshot_source(&meta, Some(url));
     let generation = state.set(tree, source, capacity, None)?;
@@ -2000,7 +2025,7 @@ mod tests {
     fn nothing_is_open_at_startup() {
         let state = AppState::default();
         let err = state.with_tree(|_, _| Ok(())).unwrap_err();
-        assert!(err.contains("nothing is open"), "{err}");
+        assert_eq!(err.code, "nothing_open");
     }
 
     fn one_node_tree(name: &str) -> Tree {
@@ -2068,7 +2093,7 @@ mod tests {
             // under a new id and a new timestamp.
             let state = loaded(snapshot_source(), &[], Some(ScanStats::default()));
             let err = savable(&state).unwrap_err();
-            assert!(err.contains("already a stored snapshot"), "{err}");
+            assert_eq!(err.code, "already_a_snapshot");
         }
 
         #[test]
@@ -2077,7 +2102,7 @@ mod tests {
             // ever existed on disk.
             let state = loaded(live("/x"), &[3], Some(ScanStats::default()));
             let err = savable(&state).unwrap_err();
-            assert!(err.contains("rescan"), "{err}");
+            assert_eq!(err.code, "edited_since_scan");
         }
 
         #[test]
@@ -2168,7 +2193,7 @@ mod tests {
             .unwrap();
 
         let err = state.with_tree_at(old, |_, _| Ok(())).unwrap_err();
-        assert_eq!(err, STALE_GENERATION);
+        assert_eq!(err.code, STALE_GENERATION);
 
         // And the current one still works, so the guard is not just refusing
         // everything.
@@ -2187,7 +2212,10 @@ mod tests {
             .set(one_node_tree("a"), live("/a"), None, None)
             .unwrap();
         assert_eq!(
-            state.with_tree_at(current + 1, |_, _| Ok(())).unwrap_err(),
+            state
+                .with_tree_at(current + 1, |_, _| Ok(()))
+                .unwrap_err()
+                .code,
             STALE_GENERATION
         );
     }
@@ -2197,7 +2225,7 @@ mod tests {
         // A stale-generation error would be misleading before anything is open.
         let state = AppState::default();
         let err = state.with_tree_at(1, |_, _| Ok(())).unwrap_err();
-        assert!(err.contains("nothing is open"), "{err}");
+        assert_eq!(err.code, "nothing_open");
     }
 
     // ------------------------------------------------ editing without reloading
@@ -2233,7 +2261,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            state.edit_tree_at(old, |_| Ok(())).unwrap_err(),
+            state.edit_tree_at(old, |_| Ok(())).unwrap_err().code,
             STALE_GENERATION
         );
     }

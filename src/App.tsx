@@ -686,7 +686,7 @@ function report(
             failed: result.failed.length,
             total: moved + result.failed.length,
           }),
-      first?.reason,
+      first ? errorMessage(first.reason) : undefined,
     );
   }
 

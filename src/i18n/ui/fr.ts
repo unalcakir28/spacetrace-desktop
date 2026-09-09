@@ -187,6 +187,45 @@ export const fr: Dictionary = {
     stayedMany: "{failed} sur {total} n'ont pas pu être déplacés",
   },
 
+  errors: {
+    unknown: "Quelque chose s'est mal passé.",
+    stale_generation: "Cette entrée appartient à une analyse qui n'est plus ouverte.",
+    scan_cancelled: "L'analyse a été interrompue.",
+    nothing_open: "Rien n'est encore ouvert.",
+    state_unusable:
+      "L'état interne de l'application est inutilisable après un plantage précédent. Redémarrez-la.",
+    not_a_directory: "{path} n'est pas un dossier.",
+    scan_thread_failed: "L'analyse ne s'est pas terminée.",
+    cannot_scan: "{path} n'a pas pu être analysé.",
+    cannot_open_database: "La base d'instantanés {db} n'a pas pu être ouverte.",
+    cannot_read_database: "La base d'instantanés {db} n'a pas pu être lue.",
+    cannot_store_snapshot: "Cette analyse n'a pas pu être enregistrée.",
+    cannot_load_snapshot: "L'instantané #{id} n'a pas pu être chargé.",
+    already_a_snapshot:
+      "Ceci est déjà un instantané enregistré. Analysez le dossier pour en enregistrer un nouveau.",
+    counters_unavailable:
+      "Les compteurs de cette analyse ne sont pas disponibles, elle ne peut donc pas être enregistrée.",
+    edited_since_scan:
+      "Des entrées ont été mises à la corbeille depuis cette analyse, qui ne correspond donc plus au disque. Relancez l'analyse pour enregistrer le résultat.",
+    operation_did_not_finish: "L'opération ne s'est pas terminée.",
+    no_entry: "Il n'y a pas d'entrée {node} dans cette analyse.",
+    nothing_to_trash: "Rien n'a été sélectionné à mettre à la corbeille.",
+    no_longer_exists: "{path} n'existe plus.",
+    cannot_move_to_trash: "{path} n'a pas pu être mis à la corbeille.",
+    trash_did_not_finish: "L'opération de mise à la corbeille ne s'est pas terminée.",
+    refusing_scan_root:
+      "Le dossier depuis lequel l'analyse a commencé ne peut pas être mis à la corbeille.",
+    cannot_open_file_manager: "Le gestionnaire de fichiers n'a pas pu être ouvert.",
+    file_manager_failed: "Le gestionnaire de fichiers s'est arrêté avec {status}.",
+    remote_failed: "L'agent n'a pas pu être joint.",
+    snapshot_not_live:
+      "Ceci est un instantané enregistré, pas le système de fichiers en direct. Ouvrez une nouvelle analyse pour agir sur les fichiers.",
+    gone_but_not_removed:
+      "L'élément a disparu du disque mais n'a pas pu être retiré de l'arborescence. Relancez l'analyse pour être sûr des totaux.",
+    trashed_but_view_moved_on:
+      "Les entrées ont été mises à la corbeille, mais une autre analyse a été ouverte pendant ce temps, si bien que cette vue n'a pas pu être mise à jour.",
+  },
+
   welcome: {
     headline: "Voyez ce qui remplit vos disques",
     lede: "Analysez un dossier ici, ouvrez un instantané pris plus tôt, ou lisez-en un directement depuis un agent qui tourne sur un serveur ou un NAS.",

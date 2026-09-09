@@ -182,6 +182,44 @@ export const tr: Dictionary = {
     stayedMany: "{total} öğeden {failed} tanesi taşınamadı",
   },
 
+  errors: {
+    unknown: "Bir şeyler ters gitti.",
+    stale_generation: "Bu girdi artık açık olmayan bir taramaya ait.",
+    scan_cancelled: "Tarama durduruldu.",
+    nothing_open: "Henüz hiçbir şey açık değil.",
+    state_unusable:
+      "Uygulamanın iç durumu daha önceki bir çökme yüzünden kullanılamaz hâlde. Yeniden başlatın.",
+    not_a_directory: "{path} bir klasör değil.",
+    scan_thread_failed: "Tarama tamamlanamadı.",
+    cannot_scan: "{path} taranamadı.",
+    cannot_open_database: "Anlık görüntü veritabanı {db} açılamadı.",
+    cannot_read_database: "Anlık görüntü veritabanı {db} okunamadı.",
+    cannot_store_snapshot: "Bu tarama saklanamadı.",
+    cannot_load_snapshot: "#{id} numaralı anlık görüntü yüklenemedi.",
+    already_a_snapshot:
+      "Bu zaten saklanmış bir anlık görüntü. Yenisini saklamak için klasörü tarayın.",
+    counters_unavailable:
+      "Bu taramanın sayaçları elde olmadığı için saklanamıyor.",
+    edited_since_scan:
+      "Bu taramadan sonra girdiler Çöp Kutusuna taşındı, yani tarama artık diskle uyuşmuyor. Sonucu saklamak için yeniden tarayın.",
+    operation_did_not_finish: "İşlem tamamlanamadı.",
+    no_entry: "Bu taramada {node} diye bir girdi yok.",
+    nothing_to_trash: "Çöp Kutusuna taşınacak bir şey seçilmedi.",
+    no_longer_exists: "{path} artık yok.",
+    cannot_move_to_trash: "{path} Çöp Kutusuna taşınamadı.",
+    trash_did_not_finish: "Çöp Kutusu işlemi tamamlanamadı.",
+    refusing_scan_root: "Taramanın başladığı klasör Çöp Kutusuna taşınamaz.",
+    cannot_open_file_manager: "Dosya yöneticisi açılamadı.",
+    file_manager_failed: "Dosya yöneticisi {status} ile çıktı.",
+    remote_failed: "Ajana ulaşılamadı.",
+    snapshot_not_live:
+      "Bu saklanmış bir anlık görüntü, canlı dosya sistemi değil. Dosyalar üzerinde işlem yapmak için yeni bir tarama açın.",
+    gone_but_not_removed:
+      "Diskten gitti ama ağaçtan çıkarılamadı. Toplamlardan emin olmak için yeniden tarayın.",
+    trashed_but_view_moved_on:
+      "Girdiler Çöp Kutusuna taşındı, ama bu sırada başka bir tarama açıldığı için bu görünüm güncellenemedi.",
+  },
+
   welcome: {
     headline: "Disklerinizi neyin doldurduğunu görün",
     lede: "Buradan bir klasör tarayın, daha önce aldığınız bir anlık görüntüyü açın ya da bir sunucuda veya NAS'ta çalışan bir ajandan doğrudan okuyun.",

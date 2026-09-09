@@ -186,6 +186,45 @@ export const it: Dictionary = {
     stayedMany: "Non è stato possibile spostare {failed} elementi su {total}",
   },
 
+  errors: {
+    unknown: "Qualcosa è andato storto.",
+    stale_generation: "Questa voce appartiene a una scansione non più aperta.",
+    scan_cancelled: "La scansione è stata interrotta.",
+    nothing_open: "Non c'è ancora nulla di aperto.",
+    state_unusable:
+      "Lo stato interno dell'app è inutilizzabile dopo un precedente arresto anomalo. Riavviarla.",
+    not_a_directory: "{path} non è una cartella.",
+    scan_thread_failed: "La scansione non è stata completata.",
+    cannot_scan: "Non è stato possibile analizzare {path}.",
+    cannot_open_database: "Non è stato possibile aprire il database di snapshot {db}.",
+    cannot_read_database: "Non è stato possibile leggere il database di snapshot {db}.",
+    cannot_store_snapshot: "Non è stato possibile salvare questa scansione.",
+    cannot_load_snapshot: "Non è stato possibile caricare lo snapshot #{id}.",
+    already_a_snapshot:
+      "Questo è già uno snapshot salvato. Analizzi la cartella per salvarne uno nuovo.",
+    counters_unavailable:
+      "I contatori di questa scansione non sono disponibili, quindi non può essere salvata.",
+    edited_since_scan:
+      "Dopo questa scansione alcune voci sono state spostate nel Cestino, quindi non corrisponde più al disco. Ripeta la scansione per salvare il risultato.",
+    operation_did_not_finish: "L'operazione non è stata completata.",
+    no_entry: "In questa scansione non esiste la voce {node}.",
+    nothing_to_trash: "Non è stato selezionato nulla da spostare nel Cestino.",
+    no_longer_exists: "{path} non esiste più.",
+    cannot_move_to_trash: "Non è stato possibile spostare {path} nel Cestino.",
+    trash_did_not_finish: "L'operazione sul Cestino non è stata completata.",
+    refusing_scan_root:
+      "La cartella da cui è partita la scansione non può essere spostata nel Cestino.",
+    cannot_open_file_manager: "Non è stato possibile aprire il gestore file.",
+    file_manager_failed: "Il gestore file è terminato con {status}.",
+    remote_failed: "Non è stato possibile raggiungere l'agente.",
+    snapshot_not_live:
+      "Questo è uno snapshot salvato, non il filesystem attivo. Apra una nuova scansione per agire sui file.",
+    gone_but_not_removed:
+      "È sparito dal disco ma non è stato possibile rimuoverlo dall'albero. Ripeta la scansione per essere certo dei totali.",
+    trashed_but_view_moved_on:
+      "Le voci sono state spostate nel Cestino, ma nel frattempo è stata aperta un'altra scansione, quindi questa vista non è stata aggiornata.",
+  },
+
   welcome: {
     headline: "Cosa sta riempiendo i dischi",
     lede: "Scansionare una cartella qui, aprire uno snapshot preso in precedenza, oppure leggerne uno direttamente da un agente in esecuzione su un server o un NAS.",

@@ -194,6 +194,50 @@ export const en = {
     stayedMany: "{failed} of {total} could not be moved",
   },
 
+  /**
+   * Errors, by the stable code the Rust side sends. The operating system's own
+   * words arrive separately as `detail` and are never translated: those are
+   * the words that go into a search engine.
+   */
+  errors: {
+    unknown: "Something went wrong.",
+    stale_generation: "That entry belongs to a scan that is no longer open.",
+    scan_cancelled: "The scan was stopped.",
+    nothing_open: "Nothing is open yet.",
+    state_unusable:
+      "The app's internal state is unusable after an earlier crash. Restart it.",
+    not_a_directory: "{path} is not a folder.",
+    scan_thread_failed: "The scan did not finish.",
+    cannot_scan: "{path} could not be scanned.",
+    cannot_open_database: "The snapshot database {db} could not be opened.",
+    cannot_read_database: "The snapshot database {db} could not be read.",
+    cannot_store_snapshot: "This scan could not be stored.",
+    cannot_load_snapshot: "Snapshot #{id} could not be loaded.",
+    already_a_snapshot:
+      "This is already a stored snapshot. Scan the folder to store a new one.",
+    counters_unavailable:
+      "This scan's counters are not available, so it cannot be stored.",
+    edited_since_scan:
+      "Entries were moved to the Trash since this scan, so it no longer matches the disk. Rescan to store the result.",
+    operation_did_not_finish: "The operation did not finish.",
+    no_entry: "There is no entry {node} in this scan.",
+    nothing_to_trash: "Nothing was selected to move to the Trash.",
+    no_longer_exists: "{path} no longer exists.",
+    cannot_move_to_trash: "{path} could not be moved to the Trash.",
+    trash_did_not_finish: "The Trash operation did not finish.",
+    refusing_scan_root:
+      "The folder the scan started from cannot be moved to the Trash.",
+    cannot_open_file_manager: "The file manager could not be opened.",
+    file_manager_failed: "The file manager exited with {status}.",
+    remote_failed: "The agent could not be reached.",
+    snapshot_not_live:
+      "This is a stored snapshot, not the live filesystem. Open a fresh scan to act on files.",
+    gone_but_not_removed:
+      "It is gone from the disk but could not be taken out of the tree. Rescan to be sure of the totals.",
+    trashed_but_view_moved_on:
+      "The entries were moved to the Trash, but a different scan was opened while that happened, so this view could not be updated.",
+  },
+
   welcome: {
     headline: "See what is filling your disks",
     lede: "Scan a folder here, open a snapshot you took earlier, or read one straight off an agent running on a server or NAS.",

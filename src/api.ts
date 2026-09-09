@@ -5,6 +5,8 @@
 // UI actually draws.
 
 import { invoke } from "@tauri-apps/api/core";
+
+import { dict, fill } from "./i18n";
 import { listen } from "@tauri-apps/api/event";
 
 export type Category =
@@ -109,7 +111,8 @@ export interface TrashedEntry {
 export interface TrashFailure {
   node: number;
   name: string;
-  reason: string;
+  /** Why it stayed, as a coded error. Pass it through `errorMessage`. */
+  reason: AppError;
 }
 
 /** What changed after a Trash operation. */
@@ -483,7 +486,7 @@ const SCAN_CANCELLED = "scan-cancelled";
  * clicked Stop. The window simply puts back whatever it was showing before.
  */
 export function isCancelled(err: unknown): boolean {
-  return typeof err === "string" && err === SCAN_CANCELLED;
+  return codeOf(err) === SCAN_CANCELLED;
 }
 
 /**
@@ -494,11 +497,49 @@ export function isCancelled(err: unknown): boolean {
  * than showing an error the user cannot act on.
  */
 export function isStale(err: unknown): boolean {
-  return typeof err === "string" && err === STALE_GENERATION;
+  return codeOf(err) === STALE_GENERATION;
 }
 
-/** Turn any thrown value into something showable. Tauri rejects with strings. */
+/**
+ * An error as the Rust side sends it: a stable code, values for its sentence,
+ * and whatever the operating system said.
+ */
+export interface AppError {
+  code: string;
+  args?: Record<string, string>;
+  /** The OS's own words. Never translated — those are the searchable ones. */
+  detail?: string;
+}
+
+function codeOf(err: unknown): string | null {
+  if (err && typeof err === "object" && typeof (err as AppError).code === "string") {
+    return (err as AppError).code;
+  }
+  // Tauri's own rejections, and anything from a plugin, are still plain
+  // strings. They carry no code and must not be mistaken for one.
+  return null;
+}
+
+/**
+ * Turn any thrown value into a sentence for this window's language.
+ *
+ * Three shapes arrive here and all three have to read sensibly: a coded error
+ * from one of our commands, a plain string from Tauri itself or a plugin, and
+ * a JavaScript `Error`. Only the first can be translated, and an unknown code
+ * falls back to the detail rather than to the code — a reader helped by
+ * `cannot_open_database` is a reader who did not need the message.
+ */
 export function errorMessage(err: unknown): string {
+  const code = codeOf(err);
+  if (code) {
+    const { args, detail } = err as AppError;
+    const d = dict();
+    const template = d.errors[code as keyof typeof d.errors];
+    const sentence = template ? fill(template, args ?? {}) : detail || code;
+    // The OS's words follow ours rather than replacing them: "X could not be
+    // scanned. Permission denied" says both what failed and why.
+    return template && detail ? `${sentence} ${detail}` : sentence;
+  }
   if (typeof err === "string") return err;
   if (err instanceof Error) return err.message;
   return String(err);

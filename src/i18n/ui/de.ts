@@ -188,6 +188,45 @@ export const de: Dictionary = {
     stayedMany: "{failed} von {total} konnten nicht verschoben werden",
   },
 
+  errors: {
+    unknown: "Etwas ist schiefgelaufen.",
+    stale_generation: "Dieser Eintrag gehört zu einem Scan, der nicht mehr offen ist.",
+    scan_cancelled: "Der Scan wurde abgebrochen.",
+    nothing_open: "Es ist noch nichts geöffnet.",
+    state_unusable:
+      "Der interne Zustand der App ist nach einem früheren Absturz unbrauchbar. Bitte neu starten.",
+    not_a_directory: "{path} ist kein Ordner.",
+    scan_thread_failed: "Der Scan wurde nicht abgeschlossen.",
+    cannot_scan: "{path} konnte nicht gescannt werden.",
+    cannot_open_database: "Die Snapshot-Datenbank {db} konnte nicht geöffnet werden.",
+    cannot_read_database: "Die Snapshot-Datenbank {db} konnte nicht gelesen werden.",
+    cannot_store_snapshot: "Dieser Scan konnte nicht gespeichert werden.",
+    cannot_load_snapshot: "Snapshot #{id} konnte nicht geladen werden.",
+    already_a_snapshot:
+      "Dies ist bereits ein gespeicherter Snapshot. Scannen Sie den Ordner, um einen neuen zu speichern.",
+    counters_unavailable:
+      "Die Zähler dieses Scans liegen nicht vor, er kann daher nicht gespeichert werden.",
+    edited_since_scan:
+      "Seit diesem Scan wurden Einträge in den Papierkorb verschoben, er passt also nicht mehr zur Festplatte. Scannen Sie erneut, um das Ergebnis zu speichern.",
+    operation_did_not_finish: "Der Vorgang wurde nicht abgeschlossen.",
+    no_entry: "In diesem Scan gibt es keinen Eintrag {node}.",
+    nothing_to_trash: "Es wurde nichts zum Verschieben in den Papierkorb ausgewählt.",
+    no_longer_exists: "{path} existiert nicht mehr.",
+    cannot_move_to_trash: "{path} konnte nicht in den Papierkorb verschoben werden.",
+    trash_did_not_finish: "Der Papierkorb-Vorgang wurde nicht abgeschlossen.",
+    refusing_scan_root:
+      "Der Ordner, in dem der Scan begonnen hat, kann nicht in den Papierkorb verschoben werden.",
+    cannot_open_file_manager: "Der Dateimanager konnte nicht geöffnet werden.",
+    file_manager_failed: "Der Dateimanager wurde mit {status} beendet.",
+    remote_failed: "Der Agent war nicht erreichbar.",
+    snapshot_not_live:
+      "Dies ist ein gespeicherter Snapshot, nicht das laufende Dateisystem. Öffnen Sie einen neuen Scan, um mit Dateien zu arbeiten.",
+    gone_but_not_removed:
+      "Es ist von der Festplatte verschwunden, konnte aber nicht aus dem Baum entfernt werden. Scannen Sie erneut, um die Summen abzusichern.",
+    trashed_but_view_moved_on:
+      "Die Einträge wurden in den Papierkorb verschoben, aber währenddessen wurde ein anderer Scan geöffnet, sodass diese Ansicht nicht aktualisiert werden konnte.",
+  },
+
   welcome: {
     headline: "Sehen Sie, was Ihre Festplatten füllt",
     lede: "Scannen Sie hier einen Ordner, öffnen Sie einen früher aufgenommenen Snapshot, oder lesen Sie einen direkt von einem Agenten, der auf einem Server oder NAS läuft.",
