@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## 0.3.1 — 2026-09-09
+
+### Fixed
+
+- The update check works. 0.3.0 announced it, but no update manifest was published alongside it, so the app had nothing to check against.
+
 ## 0.3.0 — 2026-09-09
 
 ### Added

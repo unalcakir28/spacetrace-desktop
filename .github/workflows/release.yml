@@ -115,7 +115,13 @@ jobs:
             os: macos-latest
             target: universal-apple-darwin
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            bundles: dmg
+            # `app` as well as `dmg`: the dmg is how someone installs the first
+            # time, the `.app.tar.gz` beside it is what the updater downloads.
+            # `bundle.targets` in tauri.conf.json lists both, but `--bundles`
+            # on the command line overrides that file rather than adding to it
+            # — which is why v0.3.0 shipped signed Windows and Linux updater
+            # packages and no macOS one, and so no manifest at all.
+            bundles: app,dmg
           - label: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
