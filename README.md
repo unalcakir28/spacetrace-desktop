@@ -9,7 +9,7 @@ Rust core.
 
 ## Download
 
-**[unalcakir28.github.io/spacetrace/download/](https://unalcakir28.github.io/spacetrace/download/#desktop)**
+**[spacetrace.teknobakkall.com/download/](https://spacetrace.teknobakkall.com/download/#desktop)**
 — one universal `.dmg` for macOS, an `.exe` installer for Windows, and `.deb`,
 `.rpm` and `.AppImage` for Linux.
 

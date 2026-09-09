@@ -223,7 +223,7 @@ jobs:
           run \`xattr -dr com.apple.quarantine /Applications/spacetrace.app\`.
           Windows: *More info* then *Run anyway* on the SmartScreen prompt.
 
-          Install notes and usage: https://unalcakir28.github.io/spacetrace/download/
+          Install notes and usage: https://spacetrace.teknobakkall.com/download/
           EOF
 
           if [ "$ROLLING" = "true" ]; then
