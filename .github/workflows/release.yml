@@ -273,6 +273,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release notes are sliced out of CHANGELOG.md, so this job needs the
+      # repository and not only the built bundles. It did not check out before
+      # the notes came from a heredoc.
+      - uses: actions/checkout@v5
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
