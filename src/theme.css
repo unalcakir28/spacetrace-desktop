@@ -1625,3 +1625,32 @@ th.right {
   color: var(--text-faint);
   font-weight: 600;
 }
+
+/* The update notice. A strip under the toolbar, in the accent colour rather
+   than the alarm colour: a new version is news, not a problem. */
+.update-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.update-bar .what {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.update-bar .dim {
+  color: var(--text-dim);
+}
+
+.update-bar .fail {
+  color: var(--alarm);
+}

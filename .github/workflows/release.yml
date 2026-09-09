@@ -162,6 +162,13 @@ jobs:
         env:
           SPACETRACE_GIT_SHA: ${{ github.sha }}
           SPACETRACE_CHANNEL: ${{ needs.meta.outputs.channel }}
+          # Signs the updater packages. This is Tauri's own minisign key, not
+          # an Apple or Microsoft certificate: it proves an update came from
+          # this pipeline, and says nothing about whether the OS trusts the
+          # app. Without the secret the build still succeeds and simply
+          # produces no `.sig`, which the publish step then notices.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: |
           export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -206,6 +213,29 @@ jobs:
             found=$((found + 1))
           done
           [ "$found" -gt 0 ] || { echo "no bundles were produced" >&2; exit 1; }
+
+          # The updater's own packages, kept separate from the five names the
+          # download page binds to. Adding files is safe; renaming those five
+          # is not, and the consumer is in another repo.
+          #
+          # macOS updates from the `.app.tar.gz`, Windows from the NSIS
+          # installer and Linux from the AppImage — each with the `.sig` beside
+          # it. deb and rpm have no updater path on purpose: those belong to a
+          # package manager, and an app that fights dpkg is a worse citizen
+          # than one that leaves it alone.
+          for f in src-tauri/target/"$TARGET"/release/bundle/*/*.app.tar.gz \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.app.tar.gz.sig \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.exe.sig \
+                   src-tauri/target/"$TARGET"/release/bundle/*/*.AppImage.sig; do
+            base="${f##*/}"
+            case "$base" in
+              *.app.tar.gz)     out="spacetrace-desktop-${VERSION}-${LABEL}.app.tar.gz" ;;
+              *.app.tar.gz.sig) out="spacetrace-desktop-${VERSION}-${LABEL}.app.tar.gz.sig" ;;
+              *.exe.sig)        out="spacetrace-desktop-${VERSION}-${LABEL}-setup.exe.sig" ;;
+              *.AppImage.sig)   out="spacetrace-desktop-${VERSION}-${LABEL}.AppImage.sig" ;;
+            esac
+            cp "$f" "bundles/${out}"
+          done
           ls -la bundles
 
       - uses: actions/upload-artifact@v4
@@ -322,3 +352,68 @@ jobs:
               --title "spacetrace desktop $VERSION" \
               --notes-file notes.md
           fi
+
+      # ------------------------------------------------------------ updater
+      #
+      # The app polls one fixed URL, so the manifest needs a tag that never
+      # moves while its contents do. `desktop-latest` holds exactly this one
+      # file and is recreated on every stable release; the five installer names
+      # the download page binds to are untouched.
+      #
+      # Stable only. Pointing the updater at `desktop-continuous` would offer
+      # every push to everyone who installed a release.
+      - name: Publish the update manifest
+        if: needs.meta.outputs.rolling == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          REPO: ${{ steps.dest.outputs.repo }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -eu
+          cd artifacts
+          base="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Every platform needs its signature file. Missing ones mean the
+          # signing secret is not set, and a manifest that names an unsigned
+          # package is a manifest the app will refuse — better to say so and
+          # leave the previous manifest in place than to publish a broken one.
+          mac="spacetrace-desktop-${VERSION}-macos-universal.app.tar.gz"
+          win="spacetrace-desktop-${VERSION}-windows-x86_64-setup.exe"
+          lin="spacetrace-desktop-${VERSION}-linux-x86_64.AppImage"
+          missing=0
+          for f in "$mac.sig" "$win.sig" "$lin.sig"; do
+            [ -f "$f" ] || { echo "::warning::no $f — updater manifest skipped"; missing=1; }
+          done
+          if [ "$missing" = 1 ]; then
+            echo "Set the TAURI_SIGNING_PRIVATE_KEY secret to enable self-update." >&2
+            exit 0
+          fi
+
+          # macOS ships one universal bundle, so both architectures point at it.
+          jq -n \
+            --arg version "${VERSION#v}" \
+            --arg pub_date "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --arg mac_url "$base/$mac" --arg mac_sig "$(cat "$mac.sig")" \
+            --arg win_url "$base/$win" --arg win_sig "$(cat "$win.sig")" \
+            --arg lin_url "$base/$lin" --arg lin_sig "$(cat "$lin.sig")" \
+            '{
+               version: $version,
+               pub_date: $pub_date,
+               notes: "",
+               platforms: {
+                 "darwin-aarch64": { signature: $mac_sig, url: $mac_url },
+                 "darwin-x86_64":  { signature: $mac_sig, url: $mac_url },
+                 "windows-x86_64": { signature: $win_sig, url: $win_url },
+                 "linux-x86_64":   { signature: $lin_sig, url: $lin_url }
+               }
+             }' > latest.json
+          cat latest.json
+
+          gh release delete desktop-latest --repo "$REPO" --cleanup-tag --yes || true
+          gh release create desktop-latest latest.json \
+            --repo "$REPO" \
+            --prerelease \
+            --title "Desktop — update manifest" \
+            --notes "Machine-readable. The desktop app reads \`latest.json\` from here to find out whether a newer release exists. Humans want the release list instead."

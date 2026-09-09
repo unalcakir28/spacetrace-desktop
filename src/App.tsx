@@ -41,6 +41,7 @@ import {
 import { CATEGORIES, categoryColor, categoryNote } from "./categories";
 import { dict, fill, useDict } from "./i18n";
 import { About } from "./About";
+import { UpdateBar } from "./UpdateBar";
 import { ContextMenu, type MenuItem, type MenuRequest } from "./ContextMenu";
 import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs";
 import { FolderTree } from "./FolderTree";
@@ -478,6 +479,8 @@ export function App() {
           />
         )}
       </div>
+
+      <UpdateBar />
 
       {opened ? <div className="source-line">{describe(opened, basis)}</div> : <div />}
 

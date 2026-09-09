@@ -82,3 +82,37 @@ rm -rf src-tauri/icons/android src-tauri/icons/ios   # mobil hedef yok
 ```
 
 `icon.icns` ve `icon.ico` olmadan dmg ve NSIS paketleri ikonsuz çıkıyor.
+
+## Kendi kendine güncelleme
+
+Uygulama açılışta `desktop-latest` etiketindeki `latest.json`'a bakıyor ve yeni
+bir kararlı sürüm varsa kullanıcıya soruyor. Manifest her **kararlı** yayında
+silinip yeniden oluşturuluyor; `desktop-continuous`'a bakmıyor, yoksa bir
+sürüm kurmuş herkese her push önerilirdi.
+
+**Bir kerelik kurulum.** İmzalama anahtarı üretildi ve `~/.spacetrace/updater.key`
+içinde duruyor (600, her deponun dışında). Açık anahtarı `tauri.conf.json`'da.
+Özel anahtarı sır olarak eklemek gerekiyor:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY \
+  --repo unalcakir28/spacetrace-desktop \
+  < ~/.spacetrace/updater.key
+```
+
+Sır yoksa yayın **düşmüyor**: imzasız paketler üretiliyor, `latest.json` adımı
+uyarı basıp atlanıyor ve önceki manifest yerinde kalıyor. Yani kendi kendine
+güncelleme kapalı kalır, indirmeler çalışmaya devam eder.
+
+**Bu anahtar kod imzalama değil.** Tauri'nin minisign imzası paketin bu
+boru hattından geldiğini kanıtlıyor; işletim sisteminin uygulamaya güvendiğini
+söylemiyor. macOS'ta uygulama imzasız olduğu için güncellenen paket
+Gatekeeper'a yeniden takılabilir — changelog girdisi bunu kullanıcıya söylüyor.
+
+Anahtarı kaybetmek, kurulu uygulamaların güncellenememesi demek: yeni anahtarla
+imzalanan bir manifest'i eski `pubkey` reddeder. Kurtarma yolu yeni sürümü elle
+indirtmek.
+
+**Updater varlıkları beş indirme adına dokunmuyor** — `.app.tar.gz`, `.sig`
+dosyaları ve `latest.json` eklenen dosyalar. İndirme sayfası eski beş ada
+bağlı ve o sayfa başka bir depoda.

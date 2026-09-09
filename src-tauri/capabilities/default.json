@@ -1,11 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Only what the app actually needs: a folder picker, and opening a URL in the browser. File reading, trashing and revealing all go through our own commands, which check that the open tree is a live scan first.",
-  "windows": ["main"],
+  "description": "The smallest set this app needs: open a folder chooser, open a URL in the browser, and check for and install its own updates. Anything wider would be a capability the window could use without the code asking for it.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "opener:allow-open-url"
+    "opener:allow-open-url",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

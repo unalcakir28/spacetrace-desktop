@@ -28,7 +28,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "deb", "rpm", "nsis"],
+    "targets": [
+      "app",
+      "dmg",
+      "deb",
+      "rpm",
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,14 +44,26 @@
       "icons/icon.ico"
     ],
     "shortDescription": "See what is filling your disks",
-    "longDescription": "spacetrace scans disks, keeps snapshots, and shows what grew — on this machine and on your servers.",
-    "copyright": "Copyright © 2026",
+    "longDescription": "spacetrace scans disks, keeps snapshots, and shows what grew \u2014 on this machine and on your servers.",
+    "copyright": "Copyright \u00a9 2026",
     "category": "Utility",
     "publisher": "spacetrace",
     "homepage": "https://unalcakir28.github.io/spacetrace/",
     "linux": {
       "deb": {
         "section": "utils"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4MEMyQzgzNDBFOTU4RTcKUldUbldPbEFneXdNS0Z0QlFUWXg0T3craUU5T2N2NXZIWEhUMGVEcnlOU05NcVRIZTNoWnJDVUoK",
+      "endpoints": [
+        "https://github.com/unalcakir28/spacetrace/releases/download/desktop-latest/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

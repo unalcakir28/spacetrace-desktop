@@ -30,6 +30,11 @@ spacetrace-buildinfo = { git = "https://github.com/unalcakir28/spacetrace" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+# Self-update. The signature scheme here is Tauri's own (minisign) and is
+# independent of code signing, which this project does not have: it proves the
+# update came from us, not that the OS trusts the app.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
