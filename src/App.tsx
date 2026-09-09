@@ -108,7 +108,7 @@ export function App() {
     () =>
       onScanProgress((tick: ScanTick) =>
         setWorking((prev) =>
-          prev?.doing.startsWith("Scanning")
+          prev?.kind === "scan"
             ? scanWorking(scanLabel, tick, stopScan, prev.stopping)
             : prev,
         ),
@@ -121,7 +121,7 @@ export function App() {
     () =>
       onTrashProgress((tick: TrashTick) =>
         setWorking((prev) =>
-          prev?.doing.startsWith("Moving") ? trashWorking(trashTotal, tick) : prev,
+          prev?.kind === "trash" ? trashWorking(trashTotal, tick) : prev,
         ),
       ),
     [trashTotal],

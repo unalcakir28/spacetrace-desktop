@@ -14,6 +14,16 @@
 import * as fmt from "./format";
 
 export interface Working {
+  /**
+   * Which job this is, for code rather than for the reader.
+   *
+   * Progress ticks arrive on shared channels and have to be matched against
+   * whatever is currently running. That match used to be
+   * `doing.startsWith("Scanning")` — a branch on a user-visible sentence, which
+   * worked only for as long as the sentence was English. Translating it would
+   * have stopped scan progress updating, silently, with no error anywhere.
+   */
+  kind: "scan" | "save" | "trash";
   /** What is being done, in the user's words: "Scanning Downloads". */
   doing: string;
   /**
@@ -100,9 +110,10 @@ export function scanWorking(
   stopping?: boolean,
 ): Working {
   if (!tick) {
-    return { doing: `Scanning ${label}`, onStop, stopping };
+    return { kind: "scan", doing: `Scanning ${label}`, onStop, stopping };
   }
   return {
+    kind: "scan",
     doing: `Scanning ${label}`,
     fraction: tick.fraction,
     basis: SCAN_BASIS[tick.basis ?? "none"],
@@ -127,6 +138,7 @@ export function scanWorking(
  */
 export function saveWorking(entries: number): Working {
   return {
+    kind: "save",
     doing: "Storing this scan",
     counters: [`${entries.toLocaleString("en-US").replace(/,/g, " ")} entries`],
     basis: "written in one transaction, so it cannot report progress",
@@ -140,9 +152,10 @@ export function trashWorking(
 ): Working {
   const label = total === 1 ? "1 item" : `${total} items`;
   if (!tick || tick.total === 0) {
-    return { doing: `Moving ${label} to the Trash` };
+    return { kind: "trash", doing: `Moving ${label} to the Trash` };
   }
   return {
+    kind: "trash",
     doing: tick.name
       ? `Moving ${tick.name} to the Trash`
       : `Moving ${label} to the Trash`,
