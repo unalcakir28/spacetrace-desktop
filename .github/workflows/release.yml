@@ -16,8 +16,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # CHANGELOG.md is named out of this list on purpose: it is not
+    # documentation but the release notes themselves, and it is compiled into
+    # the binary. A push that only touches it must still rebuild, or the
+    # continuous release keeps describing the version before it.
     paths-ignore:
-      - "*.md"
+      - "README.md"
+      - "RELEASING.md"
       - "tasks/**"
       - "design-preview.html"
   workflow_dispatch:
@@ -51,21 +56,47 @@ jobs:
     outputs:
       version: ${{ steps.pick.outputs.version }}
       rolling: ${{ steps.pick.outputs.rolling }}
+      channel: ${{ steps.pick.outputs.channel }}
       tag: ${{ steps.pick.outputs.tag }}
     steps:
+      - uses: actions/checkout@v5
       - id: pick
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
+          tagged=false
           if [ -n "${INPUT_TAG:-}" ]; then
             version="$INPUT_TAG"; rolling=false
           elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="$GITHUB_REF_NAME"; rolling=false
+            version="$GITHUB_REF_NAME"; rolling=false; tagged=true
           else
             version=continuous; rolling=true
           fi
+
+          if [ "$rolling" = true ]; then channel=continuous; else channel=release; fi
+
+          # This app carries its version in three files and RELEASING.md asks
+          # for all three to be edited by hand. Nothing checked that they
+          # agreed, so a half-done bump shipped an installer named v0.2.0
+          # around a binary whose About panel said 0.1.0.
+          pkg=$(jq -r .version package.json)
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          crate=$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed 's/^version = "\(.*\)"/\1/')
+          if [ "$pkg" != "$conf" ] || [ "$pkg" != "$crate" ]; then
+            echo "::error::versions disagree — package.json $pkg, tauri.conf.json $conf, Cargo.toml $crate"
+            exit 1
+          fi
+
+          # Real tag pushes only: a dispatch often names v0.1.0-test on
+          # purpose, which is supposed to disagree.
+          if [ "$tagged" = true ] && [ "$version" != "v$pkg" ]; then
+            echo "::error::tag $version does not match version $pkg"
+            exit 1
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "rolling=$rolling" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "tag=desktop-$version" >> "$GITHUB_OUTPUT"
           echo "Building as desktop-$version" >> "$GITHUB_STEP_SUMMARY"
 
@@ -125,7 +156,20 @@ jobs:
       - run: yarn install --frozen-lockfile
 
       - name: Build bundles
-        run: yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        # Stamped in so the About panel can say which build this is rather than
+        # only which version — every continuous build shares one number, and
+        # that line is what identifies a build in a bug report.
+        env:
+          SPACETRACE_GIT_SHA: ${{ github.sha }}
+          SPACETRACE_CHANNEL: ${{ needs.meta.outputs.channel }}
+        shell: bash
+        run: |
+          export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          # `-- --locked` reaches cargo: the core crates are git dependencies
+          # with no rev, so without it two builds of one tag can ship different
+          # scanner code — which would make the commit stamped above a
+          # half-truth.
+          yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
 
       - name: Collect
         shell: bash
@@ -208,6 +252,30 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
           ROLLING: ${{ needs.meta.outputs.rolling }}
         run: |
+          # The changes come out of CHANGELOG.md rather than from the
+          # generator in the core repo, which is not a command here. That is
+          # also the correct source: CHANGELOG.md is produced from the *pinned*
+          # version of that crate and a test asserts it is current, so slicing
+          # it guarantees these notes match the changelog compiled into the app
+          # being published.
+          if [ "$ROLLING" = "true" ]; then
+            section="Unreleased"
+          else
+            section="${VERSION#v} — "
+          fi
+          awk -v want="$section" '
+            index($0, "## " want) == 1 { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > changes.md
+
+          # A release with no notes is worse than no release: the reader cannot
+          # tell whether the notes are missing or the version was empty.
+          if [ "$ROLLING" != "true" ] && [ ! -s changes.md ]; then
+            echo "::error::CHANGELOG.md has no section for ${VERSION}"
+            exit 1
+          fi
+
           cat > notes.md <<EOF
           spacetrace desktop, built from \`$GITHUB_REPOSITORY\` at \`${GITHUB_SHA:0:7}\` on $(date -u '+%Y-%m-%d %H:%M UTC').
 
@@ -225,6 +293,11 @@ jobs:
 
           Install notes and usage: https://spacetrace.teknobakkall.com/download/
           EOF
+
+          if [ -s changes.md ]; then
+            printf '\n## What changed\n' >> notes.md
+            cat changes.md >> notes.md
+          fi
 
           if [ "$ROLLING" = "true" ]; then
             # Deleted and recreated so a bundle dropped from the matrix cannot
