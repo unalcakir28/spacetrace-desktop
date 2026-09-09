@@ -38,6 +38,10 @@ jobs:
           workspaces: src-tauri
 
       - run: yarn install --frozen-lockfile
+      # Only `tauri build` checks this, and that runs in the release workflow —
+      # so a mismatch used to pass CI and then fail the release on all three
+      # platforms at once. Cheap here, expensive there.
+      - run: yarn check:plugins
       - run: yarn typecheck
 
       # `tauri::generate_context!()` reads the bundle configuration at compile
