@@ -335,16 +335,19 @@ fn entry_view(tree: &Tree, id: NodeId, basis: SizeBasis) -> EntryView {
     let n = tree.node(id);
     EntryView {
         node: id,
-        name: n.name.clone(),
+        name: tree.name(id).to_string(),
         rel_path: tree.rel_path(id),
         is_dir: n.is_dir(),
         size: n.size,
         alloc: n.alloc,
-        files: n.files,
-        dirs: n.dirs,
+        // Cast rather than narrowing the DTO: these fields are serialised to
+        // the window, and changing their width would change the TS contract
+        // for no gain — the arena's u32 is already wider than any real disk.
+        files: n.files as u64,
+        dirs: n.dirs as u64,
         mtime: n.mtime,
         child_count: n.children_len,
-        category: Category::of(&n.name, n.kind),
+        category: Category::of(tree.name(id), n.kind),
         dominant: dominant(tree, id, basis),
     }
 }
@@ -370,7 +373,7 @@ fn dominant(tree: &Tree, id: NodeId, basis: SizeBasis) -> Category {
     loop {
         let node = tree.node(current);
         if !node.is_dir() {
-            return Category::of(&node.name, node.kind);
+            return Category::of(tree.name(current), node.kind);
         }
         let biggest = tree
             .children(current)
@@ -947,7 +950,9 @@ fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<Tile
             arrays.depth.push(tile.depth);
             arrays.is_dir.push(n.is_dir());
             arrays.truncated.push(tile.truncated);
-            arrays.category.push(Category::of(&n.name, n.kind) as u8);
+            arrays
+                .category
+                .push(Category::of(tree.name(tile.node), n.kind) as u8);
             arrays.parent.push(if tile.node == req.node {
                 -1
             } else {
@@ -972,7 +977,7 @@ fn labels(
             .into_iter()
             .map(|id| {
                 if (id as usize) < tree.len() {
-                    tree.node(id).name.clone()
+                    tree.name(id).to_string()
                 } else {
                     String::new()
                 }
@@ -1263,7 +1268,7 @@ async fn move_to_trash(
                             parent,
                             size: removed.size,
                             alloc: removed.alloc,
-                            files: removed.files,
+                            files: removed.files as u64,
                         });
                     }
                 }
@@ -1336,7 +1341,7 @@ fn plan_trash(
                 });
                 continue;
             }
-            let name = tree.node(node).name.clone();
+            let name = tree.name(node).to_string();
             if node == tree.root() {
                 plan.failed.push(TrashFailure {
                     node,
@@ -1900,25 +1905,25 @@ mod tests {
     }
 
     fn one_node_tree(name: &str) -> Tree {
-        use spacetrace_scan_core::Node;
-        Tree::from_parts(
-            vec![Node {
-                parent: Tree::NO_PARENT,
-                name: name.to_string(),
-                kind: EntryKind::Dir,
-                size: 0,
-                alloc: 0,
-                own_size: 0,
-                own_alloc: 0,
-                mtime: 0,
-                nlink: 1,
-                files: 0,
-                dirs: 0,
-                children_start: 0,
-                children_len: 0,
-            }],
-            PathBuf::from("/x"),
-        )
+        use spacetrace_scan_core::{StoredNode, TreeAssembler};
+        let mut asm = TreeAssembler::with_capacity(1);
+        asm.push(StoredNode {
+            parent: Tree::NO_PARENT,
+            name,
+            kind: EntryKind::Dir,
+            size: 0,
+            alloc: 0,
+            own_size: 0,
+            own_alloc: 0,
+            mtime: 0,
+            nlink: 1,
+            files: 0,
+            dirs: 0,
+            children_start: 0,
+            children_len: 0,
+        });
+        asm.finish(PathBuf::from("/x"))
+            .expect("one node is a valid tree")
     }
 
     fn live(root: &str) -> Source {
@@ -2053,7 +2058,7 @@ mod tests {
         // Still current: it works.
         assert_eq!(
             state
-                .with_tree_at(old, |tree, _| Ok(tree.node(0).name.clone()))
+                .with_tree_at(old, |tree, _| Ok(tree.name(0).to_string()))
                 .unwrap(),
             "a"
         );
@@ -2070,7 +2075,7 @@ mod tests {
         // everything.
         assert_eq!(
             state
-                .with_tree_at(new, |tree, _| Ok(tree.node(0).name.clone()))
+                .with_tree_at(new, |tree, _| Ok(tree.name(0).to_string()))
                 .unwrap(),
             "b"
         );
