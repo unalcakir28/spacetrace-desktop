@@ -165,11 +165,19 @@ jobs:
         shell: bash
         run: |
           export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          # `-- --locked` reaches cargo: the core crates are git dependencies
-          # with no rev, so without it two builds of one tag can ship different
-          # scanner code — which would make the commit stamped above a
+          # The lockfile is verified separately rather than with `--locked` on
+          # the build. yarn 1 drops every argument before a `--`, so
+          # `yarn tauri build --target X -- --locked` reaches the CLI as
+          # `tauri build --locked` with the target gone — seen failing in CI.
+          #
+          # `cargo fetch --locked` fails if Cargo.lock disagrees with the
+          # manifests, and once it agrees a normal build cannot change it. Same
+          # guarantee, no argument smuggling: the core crates are git
+          # dependencies with no rev, so without this two builds of one tag can
+          # ship different scanner code and the stamped commit becomes a
           # half-truth.
-          yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --locked
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+          yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Collect
         shell: bash
