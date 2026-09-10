@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## Unreleased
+
+### Fixed
+
+- macOS forgot every permission you had granted whenever the app updated: without a stable signing identity the system treats each release as a different app, so Full Disk Access read as on while being ignored, and every scan asked again folder by folder. The app now carries one identity across releases, so a permission granted once stays granted.
+
 ## 0.4.0 — 2026-09-10
 
 ### Added

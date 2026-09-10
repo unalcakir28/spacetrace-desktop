@@ -161,6 +161,52 @@ jobs:
 
       - run: yarn install --frozen-lockfile
 
+      # Give the macOS app a stable code identity.
+      #
+      # This is **not** about Gatekeeper — a self-signed certificate buys
+      # nothing there, and the download page still says the app is unsigned.
+      # It is about TCC. macOS keys Full Disk Access and every folder
+      # permission to an app's *designated requirement*; an ad-hoc signature
+      # has none, so the system falls back to the binary's cdhash. Every
+      # release is then a different app to macOS: the permission the user
+      # granted shows as "on" in System Settings and is silently not honoured,
+      # and the prompts return on every single update. Reported by a user on
+      # 10 Sept 2026, with the toggle visibly on.
+      #
+      # Measured before building this: two bundles with different content,
+      # signed with this certificate, share one requirement —
+      #   identifier "com.spacetrace.desktop" and certificate leaf = H"940f90…"
+      # while their cdhashes differ. That shared requirement is what survives
+      # an update.
+      #
+      # The certificate must be *trusted* on the builder, not merely present:
+      # Tauri resolves the identity with `security find-identity -v`, which
+      # lists valid identities only, and a self-signed certificate is not
+      # valid until it is a trusted root. Runners are ephemeral, so trusting
+      # it there costs nothing and reaches no other machine.
+      - name: Trust the signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "::warning title=App identity is not stable::APPLE_CERTIFICATE is unset, so this build is ad-hoc signed. It installs and runs, but macOS will forget its Full Disk Access grant and re-ask for every folder on the next update. RELEASING.md has the one command that fixes it."
+            exit 0
+          fi
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$tmp/cert.p12"
+          # -legacy: OpenSSL 3 writes a SHA-256 MAC by default and macOS
+          # cannot read it — `security import` fails with "MAC verification
+          # failed (wrong password?)", which sends you looking at the password
+          # instead of the format. Seen on OpenSSL 3.6.2.
+          openssl pkcs12 -legacy -in "$tmp/cert.p12" \
+            -passin env:APPLE_CERTIFICATE_PASSWORD -nokeys -clcerts -out "$tmp/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot \
+            -k /Library/Keychains/System.keychain "$tmp/cert.pem"
+
       - name: Build bundles
         # Stamped in so the About panel can say which build this is rather than
         # only which version — every continuous build shares one number, and
@@ -173,9 +219,23 @@ jobs:
           # this pipeline, and says nothing about whether the OS trusts the app.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # macOS only, and ignored elsewhere. Tauri imports the certificate
+          # into a keychain of its own and removes it afterwards; the step
+          # above only had to make it trusted. See that step for why.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: spacetrace
         shell: bash
         run: |
           export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          # An identity with no certificate behind it is worse than no
+          # identity: Tauri would try to sign, fail to resolve it, and take
+          # the whole build down. Without the secret this has to look exactly
+          # like the ad-hoc builds that came before.
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+          fi
 
           # Without the secret, the updater has to be switched off for the
           # build — not merely left unsigned. Two things were measured here,
@@ -211,6 +271,36 @@ jobs:
           # half-truth.
           cargo fetch --locked --manifest-path src-tauri/Cargo.toml
           yarn tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      # Falling back to an ad-hoc signature produces a release that installs
+      # and runs perfectly, and quietly brings the permission prompts back on
+      # every update. That is exactly the kind of failure nobody notices, so
+      # the identity is asserted rather than assumed.
+      - name: Check the app identity is stable
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # The certificate's own SHA-1 fingerprint. Public by nature — it is
+          # printed in the requirement of every copy of the app. It changes
+          # only if the certificate is replaced, and replacing it resets every
+          # user's granted permissions, so treat a mismatch here as a question
+          # about the certificate, not about this line.
+          LEAF: 940f909c3575db203d45c0ae67eb57ee4467ced4
+        run: |
+          set -eu
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No certificate in this build; nothing to check." && exit 0
+          fi
+          app=$(ls -d "src-tauri/target/${{ matrix.target }}/release/bundle/macos/"*.app | head -1)
+          got=$(codesign -d --requirements - "$app" 2>&1 | tail -1)
+          echo "$got"
+          case "$got" in
+            *"certificate leaf = H\"$LEAF\""*)
+              echo "Stable identity confirmed; granted permissions will survive this update." ;;
+            *)
+              echo "::error title=App identity is not stable::The bundle is not signed with the spacetrace certificate, so macOS will treat this release as a different app and forget every permission the user granted."
+              exit 1 ;;
+          esac
 
       - name: Collect
         shell: bash
