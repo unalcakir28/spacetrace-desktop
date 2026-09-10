@@ -341,6 +341,51 @@ jobs:
               exit 1 ;;
           esac
 
+      # Tauri signs the .dmg with the same identity as the app, and that turns
+      # the download itself into something Gatekeeper refuses: a disk image
+      # carrying a signature from a certificate macOS does not trust is
+      # rejected at *mount* time, so the user never reaches the app inside. An
+      # unsigned image mounts and leaves the question to the app, which is the
+      # behaviour every release before v0.4.1 had. Measured on macOS 26.5.2:
+      #
+      #   v0.4.0  source=no usable signature  -> opens
+      #   v0.4.1  origin=spacetrace           -> "Apple could not verify…"
+      #
+      # Signing the app is the whole point of the certificate (TCC keys its
+      # grants to the app's identity), so the app keeps its signature and only
+      # the container loses one. `codesign --remove-signature` refuses to touch
+      # a disk image — "operation inapplicable or not supported for this type
+      # of code" — so the image is rebuilt instead. Converting copies the
+      # filesystem verbatim, so the signed .app, the Applications symlink and
+      # the window layout all survive; zlib-level=9 is the level Tauri itself
+      # uses, and leaving it at hdiutil's default of 1 would add ~900 KB.
+      - name: Unsign the disk image
+        if: runner.os == 'macOS' && steps.keychain.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -eu
+          shopt -s nullglob
+          for dmg in src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg; do
+            tmp="${dmg%.dmg}-unsigned.dmg"
+            hdiutil convert "$dmg" -format UDZO -imagekey zlib-level=9 -o "$tmp"
+            mv "$tmp" "$dmg"
+
+            if codesign -dv "$dmg" >/dev/null 2>&1; then
+              echo "::error title=The disk image is still signed::A signed disk image is refused at mount time, so the download cannot be opened at all."
+              exit 1
+            fi
+
+            # The container was rebuilt around the app; assert the app came
+            # through it intact rather than assuming, because a corrupted
+            # signature in here would look exactly like a working release
+            # until someone downloaded it.
+            mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | grep -o '/Volumes/.*' | tail -n 1)
+            codesign --verify --deep --strict "$mnt"/*.app
+            codesign -d --requirements - "$mnt"/*.app 2>&1 | tail -1
+            hdiutil detach "$mnt" >/dev/null
+            echo "Disk image is unsigned and the app inside still verifies."
+          done
+
       - name: Collect
         shell: bash
         env:

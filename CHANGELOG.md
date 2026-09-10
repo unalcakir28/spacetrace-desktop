@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## 0.4.2 — 2026-09-10
+
+### Fixed
+
+- The .dmg would no longer open on macOS. The signing identity added in 0.4.1 was applied to the disk image as well, and an image signed by a certificate macOS does not trust is refused at mount time — so the warning arrived when you opened the download, before the app ever ran. The image is unsigned again; the app inside keeps its identity.
+
 ## 0.4.1 — 2026-09-10
 
 ### Fixed
