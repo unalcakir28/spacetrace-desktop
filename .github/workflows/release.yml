@@ -184,7 +184,16 @@ jobs:
       # lists valid identities only, and a self-signed certificate is not
       # valid until it is a trusted root. Runners are ephemeral, so trusting
       # it there costs nothing and reaches no other machine.
-      - name: Trust the signing certificate
+      # The keychain is set up here rather than left to Tauri's own
+      # `APPLE_CERTIFICATE` handling. Tauri does import the certificate
+      # correctly, but then resolves the identity with
+      # `security find-identity -v` inside a keychain it does not show you,
+      # and a self-signed certificate is invisible to `-v` until it is a
+      # trusted root — which produced "failed to resolve signing identity"
+      # with no way to see what the runner actually had. Doing it in the open
+      # costs a dozen lines and prints the identity list when it goes wrong.
+      - name: Set up the signing keychain
+        id: keychain
         if: runner.os == 'macOS'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -195,6 +204,7 @@ jobs:
             echo "::warning title=App identity is not stable::APPLE_CERTIFICATE is unset, so this build is ad-hoc signed. It installs and runs, but macOS will forget its Full Disk Access grant and re-ask for every folder on the next update. RELEASING.md has the one command that fixes it."
             exit 0
           fi
+
           tmp=$(mktemp -d)
           trap 'rm -rf "$tmp"' EXIT
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$tmp/cert.p12"
@@ -204,8 +214,29 @@ jobs:
           # instead of the format. Seen on OpenSSL 3.6.2.
           openssl pkcs12 -legacy -in "$tmp/cert.p12" \
             -passin env:APPLE_CERTIFICATE_PASSWORD -nokeys -clcerts -out "$tmp/cert.pem"
+
+          keychain="$RUNNER_TEMP/spacetrace.keychain-db"
+          pw=$(openssl rand -base64 24)
+          security create-keychain -p "$pw" "$keychain"
+          # The default keychain locks after five minutes of idleness, and a
+          # Rust release build is longer than that.
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$pw" "$keychain"
+          security import "$tmp/cert.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          # Without this, codesign is prompted for permission to use the key —
+          # and on a runner nobody is there to answer.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain
+          security default-keychain -s "$keychain"
+          # Trusted, or `find-identity -v` will not list it and Tauri will not
+          # find it. The runner is thrown away after this job.
           sudo security add-trusted-cert -d -r trustRoot \
             -k /Library/Keychains/System.keychain "$tmp/cert.pem"
+
+          echo "Identities visible to the build:"
+          security find-identity -v -p codesigning
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Build bundles
         # Stamped in so the About panel can say which build this is rather than
@@ -219,22 +250,22 @@ jobs:
           # this pipeline, and says nothing about whether the OS trusts the app.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-          # macOS only, and ignored elsewhere. Tauri imports the certificate
-          # into a keychain of its own and removes it afterwards; the step
-          # above only had to make it trusted. See that step for why.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: spacetrace
+          # Set only when the keychain step actually prepared one, so Tauri
+          # looks the identity up in the default search list. Deliberately no
+          # APPLE_CERTIFICATE here: that would send Tauri off to build a
+          # second keychain of its own.
+          #
+          # An identity with nothing behind it is worse than no identity —
+          # Tauri would try to sign, fail to resolve it, and take the build
+          # down. Empty means the secret is absent, and the build then has to
+          # look exactly like the ad-hoc ones that came before.
+          APPLE_SIGNING_IDENTITY: ${{ steps.keychain.outputs.ready == 'true' && 'spacetrace' || '' }}
         shell: bash
         run: |
           export SPACETRACE_BUILD_DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
-          # An identity with no certificate behind it is worse than no
-          # identity: Tauri would try to sign, fail to resolve it, and take
-          # the whole build down. Without the secret this has to look exactly
-          # like the ad-hoc builds that came before.
-          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            unset APPLE_SIGNING_IDENTITY
           fi
 
           # Without the secret, the updater has to be switched off for the
@@ -279,7 +310,7 @@ jobs:
       - name: Check the app identity is stable
         if: runner.os == 'macOS'
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          READY: ${{ steps.keychain.outputs.ready }}
           # The certificate's own SHA-1 fingerprint. Public by nature — it is
           # printed in the requirement of every copy of the app. It changes
           # only if the certificate is replaced, and replacing it resets every
@@ -288,7 +319,7 @@ jobs:
           LEAF: 940f909c3575db203d45c0ae67eb57ee4467ced4
         run: |
           set -eu
-          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+          if [ "${READY:-}" != "true" ]; then
             echo "No certificate in this build; nothing to check." && exit 0
           fi
           app=$(ls -d "src-tauri/target/${{ matrix.target }}/release/bundle/macos/"*.app | head -1)
