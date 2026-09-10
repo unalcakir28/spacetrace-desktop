@@ -96,6 +96,20 @@ export interface ScanTick {
   /** 0–1, or null when there is no honest denominator to divide by. */
   fraction: number | null;
   basis: "last_scan" | null;
+  /**
+   * Which stage the scan is in. After the walk the file count stops for good
+   * and only `clonesProbed` moves, so a strip that keeps saying "scanning" is
+   * saying something untrue.
+   */
+  phase: "walking" | "finishing";
+  clonesProbed: number;
+  /**
+   * How long every counter has stood still, once that is worth mentioning.
+   * `null` while the scan is moving.
+   */
+  stalledMs: number | null;
+  /** Directories being listed. Sent only while stalled. */
+  waitingOn: string[];
 }
 
 export interface TrashedEntry {

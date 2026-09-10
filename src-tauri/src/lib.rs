@@ -35,7 +35,8 @@ use std::time::{Duration, Instant};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use spacetrace_scan_core::{
-    capacity_of, scan, Capacity, EntryKind, NodeId, ScanOptions, ScanProgress, ScanStats,
+    capacity_of, scan, Capacity, EntryKind, NodeId, Phase, ScanOptions, ScanProgress, ScanStats,
+    StallWatch, STALL_GRACE,
     SizeBasis, Tree,
 };
 use spacetrace_store::{ScanMeta, Store};
@@ -495,6 +496,27 @@ pub enum EstimateBasis {
     LastScan,
 }
 
+/// Which stage of a scan a tick belongs to.
+///
+/// Mirrors `scan_core::Phase` rather than serialising it: the core type is not
+/// part of this app's wire format, and the window should not break because a
+/// name changed upstream.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanPhase {
+    Walking,
+    Finishing,
+}
+
+impl From<Phase> for ScanPhase {
+    fn from(phase: Phase) -> Self {
+        match phase {
+            Phase::Walking => ScanPhase::Walking,
+            Phase::Finishing => ScanPhase::Finishing,
+        }
+    }
+}
+
 /// One report from a scan in flight.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanTick {
@@ -511,6 +533,22 @@ pub struct ScanTick {
     /// then sits there, which is worse than no bar at all.
     pub fraction: Option<f64>,
     pub basis: Option<EstimateBasis>,
+    pub phase: ScanPhase,
+    /// Clone candidates checked. The only counter that moves after the walk,
+    /// so it is what the window shows instead of a file count that has
+    /// stopped for good.
+    pub clones_probed: u64,
+    /// How long every counter has stood still, once that has gone on long
+    /// enough to be worth saying. `None` while the scan is moving.
+    ///
+    /// A mount that stopped answering blocks a thread in the kernel and
+    /// nothing here can lift it, so the window cannot fix this — but a window
+    /// that says which folder it is waiting on lets someone decide, and one
+    /// that keeps animating a bar does not.
+    pub stalled_ms: Option<u64>,
+    /// Directories being listed right now. Sent only while stalled: on a
+    /// healthy scan it changes hundreds of times a second and means nothing.
+    pub waiting_on: Vec<String>,
 }
 
 /// Scan a directory on this machine and make it the open tree.
@@ -667,13 +705,15 @@ impl Ticker {
         let flag = Arc::clone(&stop);
         let handle = std::thread::spawn(move || {
             let started = Instant::now();
+            let mut stall = StallWatch::new(started, STALL_GRACE);
             loop {
                 // Read before emitting, so the tick sent after the flag is set
                 // is the last one and reflects the finished counts.
                 let finished = flag.load(Ordering::Relaxed);
+                let stalled = stall.observe(&progress, Instant::now());
                 let _ = app.emit(
                     SCAN_PROGRESS_EVENT,
-                    tick(scan_id, &progress, expected, started.elapsed()),
+                    tick(scan_id, &progress, expected, started.elapsed(), stalled),
                 );
                 if finished {
                     return;
@@ -704,6 +744,7 @@ fn tick(
     progress: &ScanProgress,
     expected: Option<u64>,
     elapsed: Duration,
+    stalled: Option<Duration>,
 ) -> ScanTick {
     let files = progress.files.load(Ordering::Relaxed);
     let dirs = progress.dirs.load(Ordering::Relaxed);
@@ -729,6 +770,17 @@ fn tick(
         elapsed_ms: elapsed.as_millis() as u64,
         fraction,
         basis: fraction.map(|_| EstimateBasis::LastScan),
+        phase: progress.phase().into(),
+        clones_probed: progress.clones_probed.load(Ordering::Relaxed),
+        stalled_ms: stalled.map(|waited| waited.as_millis() as u64),
+        waiting_on: match stalled {
+            Some(_) => progress
+                .reading_now()
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            None => Vec::new(),
+        },
     }
 }
 
@@ -2620,7 +2672,7 @@ mod tests {
     fn without_a_previous_scan_there_is_no_percentage() {
         // A denominator nobody measured produces a bar that races to 90% and
         // stops, which is worse than admitting there is no estimate.
-        let tick = tick(1, &progress_at(10, 2), None, Duration::from_secs(1));
+        let tick = tick(1, &progress_at(10, 2), None, Duration::from_secs(1), None);
         assert!(tick.fraction.is_none());
         assert!(tick.basis.is_none());
         assert_eq!(tick.files, 10);
@@ -2629,7 +2681,7 @@ mod tests {
 
     #[test]
     fn the_percentage_counts_entries_against_the_last_scan() {
-        let tick = tick(1, &progress_at(40, 10), Some(100), Duration::from_secs(1));
+        let tick = tick(1, &progress_at(40, 10), Some(100), Duration::from_secs(1), None);
         assert_eq!(tick.fraction, Some(0.5), "50 of an expected 100 entries");
     }
 
@@ -2638,13 +2690,86 @@ mod tests {
         // The estimate is from a different scan of a folder that has since
         // changed, so it can be overshot. Arriving early and waiting looks
         // stuck; going past 100% looks broken.
-        let tick = tick(1, &progress_at(400, 0), Some(100), Duration::from_secs(1));
+        let tick = tick(1, &progress_at(400, 0), Some(100), Duration::from_secs(1), None);
         assert_eq!(tick.fraction, Some(0.99));
+    }
+
+    /// Paths are the one thing in a tick that could leak somewhere it does not
+    /// belong, and on a healthy scan they change hundreds of times a second and
+    /// tell nobody anything. They ride along only when there is a question to
+    /// answer.
+    /// The frontend switches on the string `"finishing"`. Nothing in the
+    /// compiler connects the two, so this is the only thing standing between a
+    /// serde rename and a progress strip that silently never changes phase.
+    #[test]
+    fn the_phase_reaches_the_window_by_the_name_it_expects() {
+        let json = serde_json::to_string(&ScanPhase::Finishing).unwrap();
+        assert_eq!(json, "\"finishing\"", "src/api.ts expects this exact string");
+        assert_eq!(
+            serde_json::to_string(&ScanPhase::Walking).unwrap(),
+            "\"walking\""
+        );
+    }
+
+    /// Same contract, for the fields: `camelize` in api.ts turns `stalled_ms`
+    /// into `stalledMs`, and a rename here would leave the window reading
+    /// `undefined` — which is falsy, so the stall would simply never show.
+    #[test]
+    fn the_tick_fields_are_the_ones_the_window_reads() {
+        let tick = tick(
+            1,
+            &progress_at(1, 1),
+            None,
+            Duration::from_secs(1),
+            Some(Duration::from_secs(11)),
+        );
+        let json: serde_json::Value = serde_json::to_value(&tick).unwrap();
+        for field in ["phase", "clones_probed", "stalled_ms", "waiting_on"] {
+            assert!(
+                json.get(field).is_some(),
+                "{field} is missing from the tick the window receives"
+            );
+        }
+    }
+
+    #[test]
+    fn a_healthy_tick_carries_no_paths() {
+        let progress = progress_at(10, 2);
+        let tick = tick(1, &progress, None, Duration::from_secs(1), None);
+        assert!(tick.waiting_on.is_empty());
+        assert!(tick.stalled_ms.is_none());
+    }
+
+    #[test]
+    fn a_stalled_tick_says_how_long_and_where() {
+        let progress = progress_at(10, 2);
+        let tick = tick(
+            1,
+            &progress,
+            None,
+            Duration::from_secs(40),
+            Some(Duration::from_secs(37)),
+        );
+        assert_eq!(tick.stalled_ms, Some(37_000));
+    }
+
+    /// After the walk the file count stops for good, so a window still
+    /// labelling the phase "scanning" is saying something untrue.
+    #[test]
+    fn the_tick_carries_the_phase_and_the_probe_count() {
+        let progress = progress_at(10, 2);
+        let walking = tick(1, &progress, None, Duration::from_secs(1), None);
+        assert_eq!(walking.phase, ScanPhase::Walking);
+        assert_eq!(walking.clones_probed, 0);
+
+        progress.clones_probed.store(5, Ordering::Relaxed);
+        let later = tick(1, &progress, None, Duration::from_secs(2), None);
+        assert_eq!(later.clones_probed, 5);
     }
 
     #[test]
     fn an_empty_expectation_is_not_divided_by() {
-        let tick = tick(1, &progress_at(5, 1), Some(0), Duration::from_secs(1));
+        let tick = tick(1, &progress_at(5, 1), Some(0), Duration::from_secs(1), None);
         assert!(tick.fraction.is_none());
     }
 }

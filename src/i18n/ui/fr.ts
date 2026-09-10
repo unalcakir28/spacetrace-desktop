@@ -119,6 +119,12 @@ export const fr: Dictionary = {
     fromLastScan: "estimé d'après votre dernière analyse de ce dossier",
     firstScan:
       "première analyse de ce dossier, il n'y a donc aucune base d'estimation",
+    finishing: "Finalisation",
+    finishingNote: "recherche des clones en copie sur écriture, pour ne pas compter deux fois la taille sur le disque",
+    clonesChecked: "{count} clones candidats vérifiés",
+    stalled: "Aucune progression depuis {seconds} s",
+    stalledOn: "Aucune progression depuis {seconds} s — en attente de {path}",
+    stalledAndMore: "{path} (+{count} autres)",
     oneTransaction:
       "écrit en une seule transaction, la progression ne peut donc pas être indiquée",
   },

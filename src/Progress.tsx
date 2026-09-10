@@ -104,9 +104,53 @@ function scanBasis(key: string | null): string {
 }
 
 /** Turn a scan's report into something the strip can show. */
+/**
+ * The line shown when nothing has moved for a while.
+ *
+ * A mount that has stopped answering blocks a thread inside the kernel, and
+ * nothing this app can do will lift that — so the honest thing is to name the
+ * folder and let the reader decide whether to wait or to stop. A bar that
+ * keeps animating over a scan that is going nowhere is the version of this
+ * that wastes someone's afternoon.
+ */
+function stallWarning(tick: {
+  stalledMs: number | null;
+  waitingOn: string[];
+}): string | undefined {
+  if (tick.stalledMs === null) return undefined;
+  const d = dict();
+  const seconds = Math.round(tick.stalledMs / 1000);
+  const [first, ...rest] = tick.waitingOn;
+  // No path at all when the walk is blocked before any listing starts — on the
+  // scanned folder itself, for instance. Saying so beats an empty sentence.
+  if (first === undefined) {
+    return fill(d.progress.stalled, { seconds: fmt.count(seconds) });
+  }
+  const where =
+    rest.length > 0
+      ? fill(d.progress.stalledAndMore, { path: first, count: fmt.count(rest.length) })
+      : first;
+  return fill(d.progress.stalledOn, { seconds: fmt.count(seconds), path: where });
+}
+
+/** Turn a scan's report into something the strip can show. */
 export function scanWorking(
   label: string,
-  tick: { files: number; dirs: number; bytes: number; errors: number; elapsedMs: number; fraction: number | null; basis: string | null } | null,
+  tick:
+    | {
+        files: number;
+        dirs: number;
+        bytes: number;
+        errors: number;
+        elapsedMs: number;
+        fraction: number | null;
+        basis: string | null;
+        phase: string;
+        clonesProbed: number;
+        stalledMs: number | null;
+        waitingOn: string[];
+      }
+    | null,
   onStop: () => void,
   stopping?: boolean,
 ): Working {
@@ -115,20 +159,32 @@ export function scanWorking(
   if (!tick) {
     return { kind: "scan", doing, onStop, stopping };
   }
+  // After the walk the file count has stopped for good and only the clone
+  // probe moves, so both the label and the counters change with the phase —
+  // otherwise the strip reads as frozen for the rest of the scan.
+  const finishing = tick.phase === "finishing";
   return {
     kind: "scan",
-    doing,
-    fraction: tick.fraction,
-    basis: scanBasis(tick.basis),
-    counters: [
-      fill(d.progress.entries, { count: fmt.count(tick.files + tick.dirs) }),
-      fmt.bytes(tick.bytes),
-      fmt.duration(tick.elapsedMs),
-    ],
+    doing: finishing ? d.progress.finishing : doing,
+    fraction: finishing ? null : tick.fraction,
+    basis: finishing ? d.progress.finishingNote : scanBasis(tick.basis),
+    counters: finishing
+      ? [
+          fill(d.progress.clonesChecked, { count: fmt.count(tick.clonesProbed) }),
+          fmt.duration(tick.elapsedMs),
+        ]
+      : [
+          fill(d.progress.entries, { count: fmt.count(tick.files + tick.dirs) }),
+          fmt.bytes(tick.bytes),
+          fmt.duration(tick.elapsedMs),
+        ],
+    // A stall outranks the unreadable-count note: one is the scan telling you
+    // it is stuck, the other is a tally it will still report at the end.
     warning:
-      tick.errors > 0
+      stallWarning(tick) ??
+      (tick.errors > 0
         ? fill(d.progress.unreadable, { count: fmt.count(tick.errors) })
-        : undefined,
+        : undefined),
     onStop,
     stopping,
   };

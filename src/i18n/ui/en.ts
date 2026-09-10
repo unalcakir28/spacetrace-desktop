@@ -128,6 +128,12 @@ export const en = {
     doneOf: "{done} of {total}",
     fromLastScan: "estimated from your last scan of this folder",
     firstScan: "first scan of this folder, so there is nothing to estimate against",
+    finishing: "Finishing up",
+    finishingNote: "checking for copy-on-write clones, so the size on disk is not counted twice",
+    clonesChecked: "{count} clone candidates checked",
+    stalled: "No progress for {seconds}s",
+    stalledOn: "No progress for {seconds}s — waiting on {path}",
+    stalledAndMore: "{path} (+{count} more)",
     oneTransaction: "written in one transaction, so it cannot report progress",
   },
 

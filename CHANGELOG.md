@@ -12,9 +12,17 @@ because anyone can install them.
 
 ## Unreleased
 
+### Added
+
+- When a scan stops making progress, the progress strip now says so and names the folder it is waiting on, instead of animating a bar over a scan that is going nowhere. A network share that has stopped answering blocks in the kernel and no app can lift that — but knowing what it is waiting on is what lets you decide whether to wait or stop.
+
 ### Performance
 
 - Scans use at most eight threads instead of one per core, which made them faster on every directory tree measured — 39% on a small one, 11% on a large one. A walk is syscall-bound: past a point the threads queue in the kernel rather than work.
+
+### Fixed
+
+- The progress strip appeared to freeze at the end of every scan: after the walk there is a second pass looking for copy-on-write clones, and no counter moved during it. That phase now says “Finishing up” and counts what it checks, instead of showing a file count that has stopped.
 
 ## 0.5.0 — 2026-09-10
 

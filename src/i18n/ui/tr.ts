@@ -116,6 +116,12 @@ export const tr: Dictionary = {
     doneOf: "{total} içinden {done}",
     fromLastScan: "bu klasörün son taramasından tahmin edildi",
     firstScan: "bu klasörün ilk taraması, yani tahmin yürütecek bir dayanak yok",
+    finishing: "Tamamlanıyor",
+    finishingNote: "kopyala-yazarken klonları denetleniyor, diskteki boyut iki kez sayılmasın",
+    clonesChecked: "{count} klon adayı denetlendi",
+    stalled: "{seconds} saniyedir ilerleme yok",
+    stalledOn: "{seconds} saniyedir ilerleme yok — beklenen: {path}",
+    stalledAndMore: "{path} (+{count} tane daha)",
     oneTransaction: "tek bir işlemde yazılıyor, bu yüzden ilerleme bildiremiyor",
   },
 

@@ -120,6 +120,12 @@ export const de: Dictionary = {
     fromLastScan: "geschätzt anhand Ihres letzten Scans dieses Ordners",
     firstScan:
       "erster Scan dieses Ordners, es gibt also nichts, woran sich eine Schätzung messen könnte",
+    finishing: "Wird abgeschlossen",
+    finishingNote: "Prüfung auf Copy-on-Write-Klone, damit der Platz auf der Platte nicht doppelt gezählt wird",
+    clonesChecked: "{count} Klon-Kandidaten geprüft",
+    stalled: "Seit {seconds}s kein Fortschritt",
+    stalledOn: "Seit {seconds}s kein Fortschritt — wartet auf {path}",
+    stalledAndMore: "{path} (+{count} weitere)",
     oneTransaction:
       "wird in einer einzigen Transaktion geschrieben und kann daher keinen Fortschritt melden",
   },
