@@ -1318,6 +1318,42 @@ th.right {
   max-width: 56ch;
 }
 
+/* Missing Full Disk Access, on macOS. Tinted rather than alarm-red: nothing is
+   broken and the scan will still run — the answer is just incomplete, and an
+   error colour would claim more than that. */
+.fda {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+
+.fda b {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.fda p {
+  color: var(--text-dim);
+  margin: 0 0 12px;
+  line-height: 1.6;
+  max-width: 56ch;
+}
+
+.fda-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.fda .hint {
+  font-size: 12px;
+  margin: 0;
+}
+
 /* One-click scan targets. The front door of a disk analyser should be the
    disk, not a file picker. */
 .targets {

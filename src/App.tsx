@@ -14,6 +14,7 @@
 //   describing what changed, which the panels apply.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   api,
   errorMessage,
@@ -870,6 +871,63 @@ function describe(opened: Opened, basis: SizeBasis) {
 }
 
 /**
+ * macOS only: Full Disk Access is missing, so a scan is about to be
+ * interrupted.
+ *
+ * It sits above the folder shortcuts rather than appearing when a scan starts,
+ * because by then it is too late to be useful: macOS raises its own dialog per
+ * protected folder, from a parallel walk, in an order nobody can predict. One
+ * explanation before the first click replaces all of them.
+ *
+ * Nothing here blocks scanning. Without the permission the scan still runs and
+ * still reports what it could not read (invariant 7) — the permission only
+ * decides whether the answer is complete.
+ */
+function FullDiskAccessNotice() {
+  const d = useDict();
+  const [missing, setMissing] = useState(false);
+  const [failed, setFailed] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .fullDiskAccess()
+      // `=== false` and not falsiness: `null` is Windows and Linux, where
+      // there is no such permission and this must never appear.
+      .then((granted) => !cancelled && setMissing(granted === false))
+      .catch(() => {
+        /* A probe that cannot run is not evidence of a missing permission. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!missing) return null;
+
+  return (
+    <div className="fda">
+      <b>{d.fda.title}</b>
+      <p>{d.fda.body}</p>
+      <div className="fda-row">
+        <button
+          className="primary"
+          onClick={() =>
+            api.openPrivacySettings().catch((err) => setFailed(errorMessage(err)))
+          }
+        >
+          {d.fda.open}
+        </button>
+        {/* Restarting is part of the instruction, not a convenience: macOS
+            hands the new permission to a fresh launch only. */}
+        <button onClick={() => void relaunch()}>{d.fda.relaunch}</button>
+      </div>
+      <p className="hint">{failed || d.fda.after}</p>
+    </div>
+  );
+}
+
+/**
  * The opening screen.
  *
  * It leads with the disk and with folders that can be scanned in one click,
@@ -929,6 +987,8 @@ function Welcome({
             </div>
           </div>
         )}
+
+        <FullDiskAccessNotice />
 
         {points && points.targets.length > 0 && (
           <div className="targets">

@@ -217,6 +217,7 @@ export const de: Dictionary = {
     refusing_scan_root:
       "Der Ordner, in dem der Scan begonnen hat, kann nicht in den Papierkorb verschoben werden.",
     cannot_open_file_manager: "Der Dateimanager konnte nicht geöffnet werden.",
+    cannot_open_settings: "Die Systemeinstellungen konnten nicht geöffnet werden.",
     file_manager_failed: "Der Dateimanager wurde mit {status} beendet.",
     remote_failed: "Der Agent war nicht erreichbar.",
     snapshot_not_live:
@@ -237,6 +238,16 @@ export const de: Dictionary = {
     remoteAgent: "Entfernter Agent",
     promise:
       "Scannen liest nur. Auf den gescannten Festplatten wird nichts verändert, außer Sie verschieben ausdrücklich etwas in den Papierkorb, und das ist nur bei einem Live-Scan dieses Rechners möglich. Die App merkt sich eine einzige eigene Angabe: wie viele Einträge jeder Ordner beim letzten Mal hatte, damit der nächste Scan davon einen echten Prozentwert zeigen kann.",
+  },
+
+  /* Shown before the first scan when macOS would otherwise interrupt it
+     with one permission dialog per protected folder. */
+  fda: {
+    title: "macOS verbirgt einige Ordner vor spacetrace",
+    body: "Ohne Vollen Festplattenzugriff bleiben Schreibtisch, Dokumente, Downloads und weitere unsichtbar — und macOS fragt für jeden einzeln nach, mitten im Scan. Einmal erteilt, hört beides auf.",
+    open: "Systemeinstellungen öffnen",
+    relaunch: "App neu starten",
+    after: "Fügen Sie spacetrace in der Liste mit + hinzu oder setzen Sie den Haken, dann neu starten. macOS wendet die Änderung nur auf einen frischen Start an.",
   },
 
   scanDialog: {

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated Info.plist by the macOS bundler.
+
+  These strings are the sentence macOS puts inside its own permission dialog.
+  Without them the dialog says only that "spacetrace" wants access to a folder
+  and gives no reason at all — which, for a tool that asks to read every file
+  you own, is the fastest way to look like something you should refuse.
+
+  They are English while the rest of the window is translated into five
+  languages (K10). Localising them needs InfoPlist.strings inside .lproj
+  directories, which the bundler does not assemble; the app's own onboarding
+  panel carries the translated explanation instead, and it is shown *before*
+  the OS asks.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>spacetrace measures how much disk space your files take. It reads sizes only, and never opens, moves or changes a file unless you explicitly ask it to.</string>
+
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>spacetrace measures how much disk space your files take. It reads sizes only, and never opens, moves or changes a file unless you explicitly ask it to.</string>
+
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>spacetrace measures how much disk space your files take. It reads sizes only, and never opens, moves or changes a file unless you explicitly ask it to.</string>
+
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>spacetrace measures how much disk space an external drive holds. It reads sizes only, and never opens, moves or changes a file unless you explicitly ask it to.</string>
+
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>spacetrace measures how much disk space a network share holds. It reads sizes only, and never opens, moves or changes a file unless you explicitly ask it to.</string>
+
+    <key>NSFileProviderDomainUsageDescription</key>
+    <string>spacetrace measures how much disk space cloud files take. It reads sizes only, and never downloads, opens or changes a file unless you explicitly ask it to.</string>
+  </dict>
+</plist>

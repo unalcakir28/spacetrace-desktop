@@ -360,6 +360,19 @@ export const api = {
     return call("starting_points");
   },
 
+  /**
+   * Whether macOS lets this app read the whole filesystem. `null` on Windows
+   * and Linux, where no such permission exists — so a caller checks for
+   * `false`, never for falsiness.
+   */
+  fullDiskAccess(): Promise<boolean | null> {
+    return call("full_disk_access");
+  },
+
+  openPrivacySettings(): Promise<void> {
+    return call("open_privacy_settings");
+  },
+
   diffSnapshots(
     db: string,
     from: number,

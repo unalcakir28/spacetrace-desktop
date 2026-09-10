@@ -215,6 +215,7 @@ export const it: Dictionary = {
     refusing_scan_root:
       "La cartella da cui è partita la scansione non può essere spostata nel Cestino.",
     cannot_open_file_manager: "Non è stato possibile aprire il gestore file.",
+    cannot_open_settings: "Impossibile aprire Impostazioni di Sistema.",
     file_manager_failed: "Il gestore file è terminato con {status}.",
     remote_failed: "Non è stato possibile raggiungere l'agente.",
     snapshot_not_live:
@@ -235,6 +236,16 @@ export const it: Dictionary = {
     remoteAgent: "Agente remoto",
     promise:
       "La scansione si limita a leggere. Nulla sui dischi analizzati viene modificato, a meno che non si sposti esplicitamente qualcosa nel Cestino, e questo è possibile solo in una scansione in tempo reale di questa macchina. L'app conserva una sola annotazione propria: quanti elementi conteneva ciascuna cartella l'ultima volta, così che la scansione successiva possa mostrarne una percentuale reale.",
+  },
+
+  /* Shown before the first scan when macOS would otherwise interrupt it
+     with one permission dialog per protected folder. */
+  fda: {
+    title: "macOS sta nascondendo alcune cartelle a spacetrace",
+    body: "Senza Accesso completo al disco, Scrivania, Documenti, Download e altre restano invisibili — e macOS lo richiede di nuovo per ognuna, nel mezzo di una scansione. Concederlo una volta chiude entrambe le cose.",
+    open: "Apri Impostazioni di Sistema",
+    relaunch: "Riavvia l'app",
+    after: "Nell'elenco che si apre aggiungi spacetrace con + oppure spunta la casella, poi riavvia. macOS applica la modifica solo a un avvio nuovo.",
   },
 
   scanDialog: {

@@ -1764,6 +1764,67 @@ fn build_info() -> BuildInfo {
     }
 }
 
+// ------------------------------------------------- macOS Full Disk Access
+
+/// Whether this app may read the whole filesystem, or `None` where the
+/// question does not arise.
+///
+/// macOS keeps Desktop, Documents, Downloads and a dozen other places behind
+/// TCC. A scanner that walks a home folder without Full Disk Access therefore
+/// gets **one modal per protected folder**, mid-scan, in whatever order a
+/// parallel walk happens to reach them — which is what a user sees as an
+/// endless stream of permission dialogs over the progress bar. Asking once,
+/// before the first scan, is the only version of this that is not hostile.
+///
+/// `None` on Windows and Linux: no such permission exists there, and a banner
+/// about one would be noise.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn full_disk_access() -> Option<bool> {
+    // TCC's own database is readable only *with* Full Disk Access, which is
+    // what makes opening it the usual probe. Nothing is read out of it: the
+    // open either succeeds or is refused, and that is the entire answer.
+    const PROBE: &str = "/Library/Application Support/com.apple.TCC/TCC.db";
+
+    Some(match std::fs::File::open(PROBE) {
+        Ok(_) => true,
+        // A TCC refusal arrives as EPERM, which maps to this kind.
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => false,
+        // Anything else — the file moved, a future macOS renamed it — is not
+        // evidence of a missing permission. Nagging on a guess is worse than
+        // staying quiet, so an unreadable probe reads as "no problem".
+        Err(_) => true,
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn full_disk_access() -> Option<bool> {
+    None
+}
+
+/// Open the Full Disk Access list in System Settings.
+///
+/// It stops at opening the pane. The app cannot scroll the list to itself or
+/// tick its own checkbox, and should not want to: granting this is deliberately
+/// a human action taken in Apple's own UI, not something an app can talk its
+/// way into. All this saves is the finding.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn open_privacy_settings() -> Result<(), AppError> {
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        .status()
+        .map_err(|e| AppError::new("cannot_open_settings").detail(e))
+        .and_then(status_ok)
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn open_privacy_settings() -> Result<(), AppError> {
+    Err(AppError::new("cannot_open_settings").detail("not a macOS build"))
+}
+
 #[derive(Serialize)]
 pub struct ChangelogEntry {
     /// A stable code, not a label: the window translates it. Adding a seventh
@@ -1826,11 +1887,29 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        // Self-update. Tauri's own minisign signature proves the package came
-        // from us; it is not code signing and does not stop Gatekeeper asking
-        // again on macOS, which the update prompt says out loud.
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Self-update, registered only when the build actually carries an
+        // updater configuration.
+        //
+        // Tauri's own minisign signature proves the package came from us; it
+        // is not code signing and does not stop Gatekeeper asking again on
+        // macOS, which the update prompt says out loud.
+        //
+        // The condition is not tidiness. Without a signing key the release
+        // workflow deletes `plugins.updater` from the config — the only way it
+        // can build at all — and this plugin then refuses to initialise:
+        // `invalid type: null, expected struct Config`. Registered
+        // unconditionally, that turned a build which merely *cannot* update
+        // into one that panics before its window ever opens, while the
+        // workflow's own comment promised the opposite. Measured by building
+        // that configuration and running it.
+        .setup(|app| {
+            if app.config().plugins.0.contains_key("updater") {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
+            Ok(())
+        })
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             scan_directory,
@@ -1855,6 +1934,8 @@ pub fn run() {
             default_database,
             build_info,
             changelog,
+            full_disk_access,
+            open_privacy_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the spacetrace desktop app");

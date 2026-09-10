@@ -216,6 +216,7 @@ export const fr: Dictionary = {
     refusing_scan_root:
       "Le dossier depuis lequel l'analyse a commencé ne peut pas être mis à la corbeille.",
     cannot_open_file_manager: "Le gestionnaire de fichiers n'a pas pu être ouvert.",
+    cannot_open_settings: "Impossible d'ouvrir Réglages Système.",
     file_manager_failed: "Le gestionnaire de fichiers s'est arrêté avec {status}.",
     remote_failed: "L'agent n'a pas pu être joint.",
     snapshot_not_live:
@@ -236,6 +237,16 @@ export const fr: Dictionary = {
     remoteAgent: "Agent distant",
     promise:
       "L'analyse ne fait que lire. Rien n'est modifié sur les disques analysés, sauf si vous mettez explicitement quelque chose à la corbeille, et cela n'est possible que sur une analyse en direct de cette machine. L'application garde une seule note de son côté : le nombre d'entrées qu'avait chaque dossier la dernière fois, pour que l'analyse suivante puisse afficher un vrai pourcentage.",
+  },
+
+  /* Shown before the first scan when macOS would otherwise interrupt it
+     with one permission dialog per protected folder. */
+  fda: {
+    title: "macOS cache certains dossiers à spacetrace",
+    body: "Sans l'Accès complet au disque, le Bureau, les Documents, les Téléchargements et d'autres restent invisibles — et macOS redemande pour chacun, au milieu d'une analyse. L'accorder une fois met fin aux deux.",
+    open: "Ouvrir Réglages Système",
+    relaunch: "Redémarrer l'app",
+    after: "Dans la liste qui s'ouvre, ajoutez spacetrace avec + ou cochez-la, puis redémarrez. macOS n'applique le changement qu'à un lancement neuf.",
   },
 
   scanDialog: {

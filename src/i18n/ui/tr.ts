@@ -210,6 +210,7 @@ export const tr: Dictionary = {
     trash_did_not_finish: "Çöp Kutusu işlemi tamamlanamadı.",
     refusing_scan_root: "Taramanın başladığı klasör Çöp Kutusuna taşınamaz.",
     cannot_open_file_manager: "Dosya yöneticisi açılamadı.",
+    cannot_open_settings: "Sistem Ayarları açılamadı.",
     file_manager_failed: "Dosya yöneticisi {status} ile çıktı.",
     remote_failed: "Ajana ulaşılamadı.",
     snapshot_not_live:
@@ -230,6 +231,16 @@ export const tr: Dictionary = {
     remoteAgent: "Uzak ajan",
     promise:
       "Tarama yalnızca okur. Siz açıkça bir şeyi Çöp Kutusuna taşımadıkça taradığınız disklerde hiçbir şey değişmez, bu da yalnızca bu makinenin canlı taramasında mümkündür. Uygulama kendine ait tek bir not tutar: her klasörde geçen sefer kaç girdi olduğunu — böylece o klasörün bir sonraki taraması gerçek bir yüzde gösterebilsin.",
+  },
+
+  /* Shown before the first scan when macOS would otherwise interrupt it
+     with one permission dialog per protected folder. */
+  fda: {
+    title: "macOS bazı klasörleri spacetrace'ten gizliyor",
+    body: "Full Disk Access olmadan Masaüstü, Belgeler, İndirilenler ve diğerleri görünmez kalıyor — ve macOS her biri için, tarama ortasında yeniden soruyor. Bir kez vermek ikisini de bitiriyor.",
+    open: "Sistem Ayarları'nı aç",
+    relaunch: "Uygulamayı yeniden başlat",
+    after: "Açılan listede + ile spacetrace'i ekleyin ya da işaretleyin, sonra yeniden başlatın. macOS değişikliği yalnızca yeni bir açılışa uyguluyor.",
   },
 
   scanDialog: {

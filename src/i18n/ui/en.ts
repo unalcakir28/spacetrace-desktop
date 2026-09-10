@@ -228,6 +228,7 @@ export const en = {
     refusing_scan_root:
       "The folder the scan started from cannot be moved to the Trash.",
     cannot_open_file_manager: "The file manager could not be opened.",
+    cannot_open_settings: "System Settings could not be opened.",
     file_manager_failed: "The file manager exited with {status}.",
     remote_failed: "The agent could not be reached.",
     snapshot_not_live:
@@ -248,6 +249,16 @@ export const en = {
     remoteAgent: "Remote agent",
     promise:
       "Scanning only reads. Nothing on the disks you scan is changed unless you explicitly move something to the Trash, and that is only possible on a live scan of this machine. The app keeps one note of its own: how many entries each folder had last time, so the next scan of it can show a real percentage.",
+  },
+
+  /* Shown before the first scan when macOS would otherwise interrupt it
+     with one permission dialog per protected folder. */
+  fda: {
+    title: "macOS is hiding some folders from spacetrace",
+    body: "Without Full Disk Access, Desktop, Documents, Downloads and others stay invisible — and macOS asks again for each one, in the middle of a scan. Granting it once ends both.",
+    open: "Open System Settings",
+    relaunch: "Restart the app",
+    after: "In the list that opens, add spacetrace with + or tick it, then restart. macOS applies the change only to a fresh launch.",
   },
 
   scanDialog: {
