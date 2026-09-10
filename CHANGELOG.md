@@ -10,6 +10,16 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## 0.5.0 — 2026-09-10
+
+### Added
+
+- Snapshots now carry a checksum of their content. One pulled from an agent that changed on the way is refused rather than drawn: a flipped bit leaves a perfectly valid tree, and a treemap renders a wrong number every bit as convincingly as a right one.
+
+### Changed
+
+- The snapshot database this app shares with the command-line tool moves to a new schema. This version reads the old one without ceremony; the reverse does not hold, so update both together if you use both.
+
 ## 0.4.2 — 2026-09-10
 
 ### Fixed
