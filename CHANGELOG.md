@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## Unreleased
+
+### Performance
+
+- Scans use at most eight threads instead of one per core, which made them faster on every directory tree measured — 39% on a small one, 11% on a large one. A walk is syscall-bound: past a point the threads queue in the kernel rather than work.
+
 ## 0.5.0 — 2026-09-10
 
 ### Added

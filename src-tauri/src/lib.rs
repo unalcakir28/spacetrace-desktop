@@ -541,6 +541,11 @@ async fn scan_directory(
         // would answer "how much room does this take" wrongly, which is the
         // one question the app exists to answer.
         dedupe_clones: true,
+        // The scanner's own default, which is measured rather than one per
+        // core. Not exposed in the UI: someone who wants to tune this is
+        // already at a terminal, and a slider here would be a knob nobody
+        // could evaluate without a stopwatch.
+        threads: None,
     };
 
     let progress = Arc::new(ScanProgress::default());
