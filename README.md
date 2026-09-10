@@ -241,8 +241,18 @@ prerequisites](https://tauri.app/start/prerequisites/).
 yarn install
 yarn tauri dev          # app with hot reload
 yarn typecheck          # tsc --noEmit
-cd src-tauri && cargo test && cargo clippy --all-targets -- -D warnings
+yarn check:plugins      # the Tauri crates and their JS halves agree
+
+cd src-tauri
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
+
+That is the same set CI runs, in the same order, on purpose. `cargo fmt` used
+to be missing from this list while CI enforced it, which turns a formatting
+slip into a red build ten minutes after the push instead of an error before
+it.
 
 Build a bundle:
 
