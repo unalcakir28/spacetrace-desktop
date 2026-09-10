@@ -36,8 +36,7 @@ use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use spacetrace_scan_core::{
     capacity_of, scan, Capacity, EntryKind, NodeId, Phase, ScanOptions, ScanProgress, ScanStats,
-    StallWatch, STALL_GRACE,
-    SizeBasis, Tree,
+    SizeBasis, StallWatch, Tree, STALL_GRACE,
 };
 use spacetrace_store::{ScanMeta, Store};
 use spacetrace_treemap::{layout, LayoutOptions, Rect};
@@ -2681,7 +2680,13 @@ mod tests {
 
     #[test]
     fn the_percentage_counts_entries_against_the_last_scan() {
-        let tick = tick(1, &progress_at(40, 10), Some(100), Duration::from_secs(1), None);
+        let tick = tick(
+            1,
+            &progress_at(40, 10),
+            Some(100),
+            Duration::from_secs(1),
+            None,
+        );
         assert_eq!(tick.fraction, Some(0.5), "50 of an expected 100 entries");
     }
 
@@ -2690,7 +2695,13 @@ mod tests {
         // The estimate is from a different scan of a folder that has since
         // changed, so it can be overshot. Arriving early and waiting looks
         // stuck; going past 100% looks broken.
-        let tick = tick(1, &progress_at(400, 0), Some(100), Duration::from_secs(1), None);
+        let tick = tick(
+            1,
+            &progress_at(400, 0),
+            Some(100),
+            Duration::from_secs(1),
+            None,
+        );
         assert_eq!(tick.fraction, Some(0.99));
     }
 
@@ -2704,7 +2715,10 @@ mod tests {
     #[test]
     fn the_phase_reaches_the_window_by_the_name_it_expects() {
         let json = serde_json::to_string(&ScanPhase::Finishing).unwrap();
-        assert_eq!(json, "\"finishing\"", "src/api.ts expects this exact string");
+        assert_eq!(
+            json, "\"finishing\"",
+            "src/api.ts expects this exact string"
+        );
         assert_eq!(
             serde_json::to_string(&ScanPhase::Walking).unwrap(),
             "\"walking\""
