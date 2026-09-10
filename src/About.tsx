@@ -129,14 +129,15 @@ export function About({ onClose }: { onClose(): void }) {
             </p>
           ) : (
             <div className="changelog">
+              {/* Every entry here is a real release: the command drops
+                  `unreleased`, because those describe code on main that this
+                  copy of the app does not contain. */}
               {releases.map((release) => (
-                <section key={release.version || "unreleased"}>
+                <section key={release.version}>
                   <h4>
-                    <span className="num">
-                      {release.version || d.about.whatsNew}
-                    </span>
+                    <span className="num">{release.version}</span>
                     {release.date && <em>{release.date}</em>}
-                    {release.version && !release.published && (
+                    {!release.published && (
                       <span className="badge warn">{d.about.milestone}</span>
                     )}
                   </h4>

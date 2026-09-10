@@ -17,6 +17,10 @@ because anyone can install them.
 - Temporary install scripts for macOS and Windows that fetch the bundle with curl or Invoke-WebRequest, verify it against SHA256SUMS and install it. A download made that way carries none of the marks a browser writes, so Gatekeeper and SmartScreen never fire. They go away once the app is signed.
 - Without Full Disk Access, macOS asks about each protected folder separately — mid-scan, in an order nobody can predict. The welcome screen now says so before the first scan and has a button straight to the right settings pane. The system's own dialog finally explains why a disk analyser wants to read your files, too.
 
+### Changed
+
+- The What's new panel now lists released versions only. Entries that had landed but were in no release described work your copy does not contain.
+
 ### Fixed
 
 - The macOS install instructions described the right-click Open trick, which Apple removed in macOS 15. They now give the System Settings → Privacy & Security → Open Anyway route instead.

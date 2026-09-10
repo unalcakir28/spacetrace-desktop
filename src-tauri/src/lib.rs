@@ -1835,9 +1835,11 @@ pub struct ChangelogEntry {
 
 #[derive(Serialize)]
 pub struct ChangelogRelease {
-    /// Empty for entries that have landed but are not in a release yet.
+    /// Always a real version. Nothing unreleased reaches this type.
     version: String,
     date: String,
+    /// False for a development milestone that was never tagged and has no
+    /// downloadable files. It still happened and is still worth reading.
     published: bool,
     entries: Vec<ChangelogEntry>,
 }
@@ -1847,6 +1849,11 @@ pub struct ChangelogRelease {
 /// Compiled in rather than fetched. The moment this is most likely to be read
 /// is right after the app has updated itself, which is also a moment it may
 /// have no network — and a blank "what's new" is worse than none.
+///
+/// **Releases only.** `log.unreleased` is skipped: those entries describe code
+/// that is on `main` and in nobody's copy of the app, so listing them under
+/// "what's new" would announce work the reader cannot have. They arrive here
+/// the moment the release that contains them is cut.
 #[tauri::command]
 fn changelog(locale: String) -> Vec<ChangelogRelease> {
     use spacetrace_changelog::{changelog, Component};
@@ -1862,24 +1869,15 @@ fn changelog(locale: String) -> Vec<ChangelogRelease> {
             .collect()
     };
 
-    let mut out = Vec::with_capacity(log.releases.len() + 1);
-    if !log.unreleased.is_empty() {
-        out.push(ChangelogRelease {
-            version: String::new(),
-            date: String::new(),
-            published: false,
-            entries: view(&log.unreleased),
-        });
-    }
-    for release in &log.releases {
-        out.push(ChangelogRelease {
+    log.releases
+        .iter()
+        .map(|release| ChangelogRelease {
             version: release.version.clone(),
             date: release.date.clone(),
             published: release.published,
             entries: view(&release.entries),
-        });
-    }
-    out
+        })
+        .collect()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1944,6 +1942,26 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The "What's new" panel must never announce work that is not in this
+    /// binary. Counting against `releases` rather than looking for an empty
+    /// version keeps the test honest when `unreleased` happens to be empty —
+    /// which it is right after every release, exactly when a regression would
+    /// slip through unnoticed.
+    #[test]
+    fn the_changelog_panel_shows_releases_only() {
+        use spacetrace_changelog::{changelog as source, Component};
+
+        let log = source().component(Component::Desktop);
+        let shown = changelog("en".to_string());
+
+        assert_eq!(shown.len(), log.releases.len());
+        assert!(
+            shown.iter().all(|release| !release.version.is_empty()),
+            "an entry with no version reached the panel, which is how \
+             unreleased work used to be rendered"
+        );
+    }
 
     #[test]
     fn categories_follow_the_extension() {
