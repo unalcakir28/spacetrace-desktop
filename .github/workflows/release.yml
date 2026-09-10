@@ -325,8 +325,16 @@ jobs:
           app=$(ls -d "src-tauri/target/${{ matrix.target }}/release/bundle/macos/"*.app | head -1)
           got=$(codesign -d --requirements - "$app" 2>&1 | tail -1)
           echo "$got"
+          # `root`, not `leaf`. codesign writes whichever the chain says, and
+          # for a self-signed certificate that the builder trusts as a root it
+          # writes `root`; the same certificate untrusted gives `leaf`. Both
+          # are stable across builds, but they are *different strings*, and
+          # TCC compares the requirement as written — so a build that quietly
+          # stopped trusting the certificate would produce a valid signature
+          # and still lose every granted permission. Pinned exactly for that
+          # reason: this line is what makes the trust step non-optional.
           case "$got" in
-            *"certificate leaf = H\"$LEAF\""*)
+            *"certificate root = H\"$LEAF\""*)
               echo "Stable identity confirmed; granted permissions will survive this update." ;;
             *)
               echo "::error title=App identity is not stable::The bundle is not signed with the spacetrace certificate, so macOS will treat this release as a different app and forget every permission the user granted."
