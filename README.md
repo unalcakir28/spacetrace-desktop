@@ -294,6 +294,7 @@ src/                    React frontend
 ├── Toasts.tsx          what just happened, said once
 ├── Dialogs.tsx         scan / snapshots / remote / diff
 ├── Timeline.tsx        one folder's history: the line, and what each step cost
+├── age.ts              the heat map's palette and the words for its bands
 ├── basis.ts            on disk vs logical: the one place the choice is defined
 ├── categories.ts       the one place category colours are read from
 ├── format.ts           byte, count and date formatting (matches the CLI)
