@@ -20,6 +20,7 @@ because anyone can install them.
 ### Performance
 
 - Scans use at most eight threads instead of one per core, which made them faster on every directory tree measured — 39% on a small one, 11% on a large one. A walk is syscall-bound: past a point the threads queue in the kernel rather than work.
+- Scans on macOS are about 2.3 times faster, following the same change in the scanning core: the system can report a folder's names and its files' sizes in one request instead of one request per file.
 
 ### Fixed
 
