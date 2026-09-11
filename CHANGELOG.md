@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## Unreleased
+
+### Added
+
+- A first scan now shows what it is finding while it runs, instead of a blank panel and a counter. The top-level folders appear as a map and grow as their contents are read, so the big one usually announces itself long before the scan ends. The figures are what has been found so far and the view says so — a folder that has stopped growing looks exactly like one that is finished. The same layout routine draws this and the finished map, so nothing rearranges when the scan lands. A rescan leaves the map you are already reading alone, as before.
+
 ## 0.6.2 — 2026-09-11
 
 ### Fixed

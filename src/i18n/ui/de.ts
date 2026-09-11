@@ -24,6 +24,10 @@ export const de: Dictionary = {
     note: "Die Kommandozeile und der Agent bleiben englisch: Ein übersetzter Befehl würde nicht laufen.",
   },
 
+  live: {
+    starting: "Oberste Ebene wird gelesen…",
+    found: "Was der Scan bisher gefunden hat — Ordner wachsen beim Lesen",
+  },
   age: {
     colorBy: "Karte einfärben nach",
     byKind: "Art",

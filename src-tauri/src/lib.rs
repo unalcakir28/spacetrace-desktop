@@ -40,7 +40,7 @@ use spacetrace_scan_core::{
     STALL_GRACE,
 };
 use spacetrace_store::{ScanMeta, Store};
-use spacetrace_treemap::{layout, LayoutOptions, Rect};
+use spacetrace_treemap::{layout, squarify, LayoutOptions, Rect};
 use tauri::Emitter;
 
 mod error;
@@ -278,6 +278,16 @@ impl AppState {
             stats,
         });
         Ok(generation)
+    }
+
+    /// The progress object of whatever is running, if anything.
+    ///
+    /// Cloned out under the lock rather than handed out as a borrow, so that
+    /// reading a preview cannot hold the scan's own mutex while it lays out a
+    /// map — the scan would then be waiting on the window it exists to feed.
+    fn running_progress(&self) -> Result<Option<Arc<ScanProgress>>, AppError> {
+        let guard = self.running.lock().map_err(|_| lock_poisoned())?;
+        Ok(guard.as_ref().map(|running| Arc::clone(&running.progress)))
     }
 
     /// Register a starting scan, stopping whatever was already running.
@@ -1171,6 +1181,114 @@ fn age_profile(
         }
         Ok(age_profile_at(tree, node, now_seconds(), DEFAULT_EDGES))
     })
+}
+
+// ------------------------------------------------------------- live preview
+
+/// One tile of the map a scan draws while it is still running.
+///
+/// Carries its own name, unlike the finished map's tiles: there are at most a
+/// few dozen of these and they change every tick, so a second round trip to
+/// fetch names would cost more than the names do.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveTile {
+    pub name: String,
+    pub is_dir: bool,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    /// Bytes found under it so far. **Not** what is there — see the note on
+    /// the command below.
+    pub alloc: u64,
+    pub size: u64,
+    pub files: u64,
+    /// Same index the finished map uses, so the colours do not change when
+    /// the scan ends and the real tree takes over.
+    pub category: u8,
+}
+
+/// How many of the root's children the preview draws.
+///
+/// A folder with ten thousand children would otherwise put ten thousand names
+/// across the IPC boundary eight times a second, to paint tiles a pixel wide.
+/// The largest few dozen are the whole of what anyone can read while a scan is
+/// moving, and they are the ones being watched.
+const LIVE_TILES: usize = 48;
+
+/// The map to draw while a scan is running.
+///
+/// **These figures are partial and the view that draws them has to say so.**
+/// Each one is what has been found under that folder *so far*; a folder whose
+/// number has stopped climbing looks exactly like a folder that has been fully
+/// read, and only one of those can be quoted. When the scan finishes the real
+/// tree replaces this entirely rather than being merged into it.
+///
+/// Returns nothing when no scan is running, or before the root's own listing
+/// has finished — which is the honest answer to "what have you found", not an
+/// error.
+#[tauri::command(async)]
+fn live_tiles(
+    state: tauri::State<'_, AppState>,
+    width: f64,
+    height: f64,
+) -> Result<Vec<LiveTile>, AppError> {
+    let Some(progress) = state.running_progress()? else {
+        return Ok(Vec::new());
+    };
+    Ok(live_layout(&progress.live.snapshot(), width, height))
+}
+
+/// The placement, separated from the command so it can be tested.
+///
+/// A `tauri::State` cannot be built in a test, so a rule that lived inside the
+/// command would be a rule nothing could exercise — and this one has three
+/// things worth pinning: the cap, the measure the rectangles follow, and what
+/// happens before anything has been found.
+fn live_layout(
+    found: &[spacetrace_scan_core::LiveEntry],
+    width: f64,
+    height: f64,
+) -> Vec<LiveTile> {
+    let found = &found[..found.len().min(LIVE_TILES)];
+    if found.is_empty() || width <= 0.0 || height <= 0.0 {
+        return Vec::new();
+    }
+
+    // Laid out on `alloc` because that is the desktop's default measure and
+    // invariant #6 applies here too: the size of a rectangle and the number
+    // reported for it have to come from the same column.
+    let weights: Vec<(NodeId, f64)> = found
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (index as NodeId, entry.alloc as f64))
+        .collect();
+
+    squarify(&weights, Rect::new(0.0, 0.0, width, height), 1.0)
+        .into_iter()
+        .filter_map(|(index, rect)| {
+            let entry = found.get(index as usize)?;
+            Some(LiveTile {
+                name: entry.name.clone(),
+                is_dir: entry.is_dir,
+                x: rect.x,
+                y: rect.y,
+                w: rect.w,
+                h: rect.h,
+                alloc: entry.alloc,
+                size: entry.size,
+                files: entry.files,
+                category: Category::of(
+                    &entry.name,
+                    match entry.is_dir {
+                        true => EntryKind::Dir,
+                        false => EntryKind::File,
+                    },
+                ) as u8,
+            })
+        })
+        .collect()
 }
 
 /// Names for specific entries, for the tiles big enough to be labelled.
@@ -2104,6 +2222,7 @@ pub fn run() {
             children,
             ancestors,
             age_profile,
+            live_tiles,
             absolute_path,
             reveal,
             move_to_trash,
@@ -2390,6 +2509,99 @@ mod tests {
             .with_bands_at(generation, |tree, bands| Ok(bands[tree.root() as usize]))
             .unwrap();
         assert_eq!(after, Some(0), "the cache must not survive the edit");
+    }
+
+    /// The live preview during a scan. Everything a reader would notice is
+    /// decided in `live_layout`, and none of it can be reached through the
+    /// command itself — a `tauri::State` cannot be built here.
+    mod live_preview {
+        use super::*;
+        use spacetrace_scan_core::LiveEntry;
+
+        fn entry(name: &str, alloc: u64) -> LiveEntry {
+            LiveEntry {
+                name: name.to_string(),
+                is_dir: true,
+                size: alloc,
+                alloc,
+                files: 1,
+            }
+        }
+
+        #[test]
+        fn a_scan_that_has_found_nothing_yet_draws_nothing() {
+            assert!(live_layout(&[], 800.0, 600.0).is_empty());
+            // Found, but all of it empty: there is no proportion to draw and
+            // a map of equal grey boxes would be a claim nobody made.
+            let nothing = [entry("a", 0), entry("b", 0)];
+            assert!(live_layout(&nothing, 800.0, 600.0).is_empty());
+        }
+
+        /// A window that has not been measured yet, or has been collapsed.
+        #[test]
+        fn a_drawing_area_with_no_room_draws_nothing() {
+            let found = [entry("a", 100)];
+            assert!(live_layout(&found, 0.0, 600.0).is_empty());
+            assert!(live_layout(&found, 800.0, -1.0).is_empty());
+        }
+
+        /// The rectangles have to follow the same measure the figures do.
+        #[test]
+        fn a_folder_holding_twice_as_much_gets_twice_the_area() {
+            let found = [entry("big", 200), entry("small", 100)];
+            let tiles = live_layout(&found, 300.0, 200.0);
+            assert_eq!(tiles.len(), 2);
+
+            let big = tiles.iter().find(|t| t.name == "big").unwrap();
+            let small = tiles.iter().find(|t| t.name == "small").unwrap();
+            let ratio = (big.w * big.h) / (small.w * small.h);
+            assert!(
+                (ratio - 2.0).abs() < 0.05,
+                "the areas are {ratio:.3}× apart, not 2×"
+            );
+        }
+
+        /// A folder with thousands of children would otherwise put thousands
+        /// of names across the IPC boundary four times a second, to paint
+        /// tiles a pixel wide.
+        #[test]
+        fn only_the_largest_handful_are_drawn() {
+            let many: Vec<LiveEntry> = (0..500)
+                .map(|i| entry(&format!("d{i:0>3}"), 1_000_000 - i as u64))
+                .collect();
+            let tiles = live_layout(&many, 1000.0, 700.0);
+            assert!(tiles.len() <= LIVE_TILES, "drew {} tiles", tiles.len());
+            // And they are the largest, not the first that happened to fit.
+            assert!(tiles.iter().any(|t| t.name == "d000"));
+            assert!(!tiles.iter().any(|t| t.name == "d499"));
+        }
+
+        /// The colours have to be the ones the finished map will use, or the
+        /// picture changes character the moment the scan lands.
+        #[test]
+        fn a_tile_carries_the_category_the_finished_map_would_give_it() {
+            let mut file = entry("holiday.mp4", 900);
+            file.is_dir = false;
+            let tiles = live_layout(&[file], 400.0, 300.0);
+            assert_eq!(tiles[0].category, Category::Video as u8);
+            assert!(!tiles[0].is_dir);
+        }
+
+        /// Every tile has to sit inside the area it was given; one placed
+        /// outside is drawn off the edge of the canvas and simply vanishes.
+        #[test]
+        fn every_tile_lands_inside_the_drawing_area() {
+            let found: Vec<LiveEntry> = (0..12)
+                .map(|i| entry(&format!("d{i}"), (i as u64 + 1) * 137))
+                .collect();
+            let tiles = live_layout(&found, 640.0, 480.0);
+            assert!(!tiles.is_empty());
+            for tile in &tiles {
+                assert!(tile.x >= -0.01 && tile.y >= -0.01, "{tile:?}");
+                assert!(tile.x + tile.w <= 640.01, "{tile:?}");
+                assert!(tile.y + tile.h <= 480.01, "{tile:?}");
+            }
+        }
     }
 
     /// Storing the open scan. Each refusal here is a snapshot that would have

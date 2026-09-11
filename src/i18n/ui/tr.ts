@@ -24,6 +24,10 @@ export const tr: Dictionary = {
     note: "Komut satırı ve ajan İngilizce kalır: çevrilmiş bir komut çalışmaz.",
   },
 
+  live: {
+    starting: "Üst seviye okunuyor…",
+    found: "Taramanın şu ana kadar bulduğu — klasörler okundukça büyüyor",
+  },
   age: {
     colorBy: "Haritayı şuna göre renklendir",
     byKind: "Tür",

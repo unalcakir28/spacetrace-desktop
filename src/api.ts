@@ -235,6 +235,26 @@ export interface AgeProfile {
   unknown: AgeBucket;
 }
 
+/**
+ * One tile of the map drawn while a scan is running.
+ *
+ * `alloc`, `size` and `files` are what has been found under that entry **so
+ * far**, not what is there. The view that draws them says so; anything else
+ * reading them has to know it too.
+ */
+export interface LiveTile {
+  name: string;
+  isDir: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  alloc: number;
+  size: number;
+  files: number;
+  category: number;
+}
+
 /** One measurement in a target's history. */
 export interface HistoryPoint {
   scanId: number;
@@ -375,6 +395,15 @@ export const api = {
         basis: req.basis,
       },
     });
+  },
+
+  /**
+   * The map to draw while a scan is running. Empty when nothing is running,
+   * and empty until the scan has finished listing its own root — which is the
+   * honest answer to "what have you found", not a failure.
+   */
+  liveTiles(width: number, height: number): Promise<LiveTile[]> {
+    return call("live_tiles", { width, height });
   },
 
   /** The age distribution of one folder, for the heat map's key. */

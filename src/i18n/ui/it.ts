@@ -28,6 +28,10 @@ export const it: Dictionary = {
     note: "La riga di comando e l'agente restano in inglese: un comando tradotto non funzionerebbe.",
   },
 
+  live: {
+    starting: "Lettura del primo livello…",
+    found: "Ciò che la scansione ha trovato finora: le cartelle crescono man mano",
+  },
   age: {
     colorBy: "Colora la mappa per",
     byKind: "Tipo",

@@ -50,6 +50,7 @@ import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs"
 import { HistoryDialog } from "./Timeline";
 import { FolderTree } from "./FolderTree";
 import { Inspector } from "./Inspector";
+import { LiveMap } from "./LiveMap";
 import { Progress, saveWorking, scanWorking, trashWorking, type Working } from "./Progress";
 import { DEFAULT_WIDTHS, Resizer, usePaneWidths } from "./Resizer";
 import { SaveDialog } from "./SaveDialog";
@@ -508,7 +509,11 @@ export function App() {
 
       {working ? <Progress {...working} /> : <div />}
 
-      {!opened ? (
+      {!opened && working?.kind === "scan" ? (
+        // Only here, and only with nothing open. A rescan leaves the map that
+        // is already on screen alone: work never takes the window away.
+        <LiveMap />
+      ) : !opened ? (
         <Welcome
           busy={!!working}
           onScanPath={(path, label) => runScan({ path }, label)}

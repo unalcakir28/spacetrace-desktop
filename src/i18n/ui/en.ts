@@ -36,6 +36,10 @@ export const en = {
     note: "The command line and the agent stay in English: a translated command would not run.",
   },
 
+  live: {
+    starting: "Reading the top level…",
+    found: "What the scan has found so far — folders grow as it reads them",
+  },
   age: {
     colorBy: "Colour the map by",
     byKind: "Kind",

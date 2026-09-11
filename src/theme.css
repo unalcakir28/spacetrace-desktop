@@ -1785,3 +1785,47 @@ th.right {
   stroke: var(--text);
   stroke-width: 3;
 }
+
+/* ------------------------------------------------------- live scan preview */
+
+/* Fills the space the welcome screen would have used, so a first scan of a
+   large disk has something to watch instead of a blank panel. */
+.live-map {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 12px 12px;
+  gap: 8px;
+}
+
+.live-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* The same live dot the scan badge uses, so "this is still moving" reads the
+   same way in both places. */
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Respect a reader who has asked for less movement: the map itself already
+   changes on its own, and a pulsing dot beside it is decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}

@@ -24,6 +24,10 @@ export const fr: Dictionary = {
     note: "La ligne de commande et l'agent restent en anglais : une commande traduite ne s'exécuterait pas.",
   },
 
+  live: {
+    starting: "Lecture du premier niveau…",
+    found: "Ce que l'analyse a trouvé jusqu'ici — les dossiers grandissent à mesure",
+  },
   age: {
     colorBy: "Colorer la carte par",
     byKind: "Type",
