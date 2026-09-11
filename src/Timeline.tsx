@@ -283,19 +283,37 @@ export function HistoryDialog({
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * `keepFocus` is false for a reload the user asked for: they have typed a
+   * different database, so landing on the folder that happens to be on screen
+   * behind the dialog would be the wrong answer to a question they just asked.
+   */
+  const load = (path: string, keepFocus: boolean) => {
+    setBusy(true);
+    setError(null);
+    api
+      .snapshotHistory(path)
+      .then((found) => {
+        setTargets(found);
+        setAt(keepFocus ? pick(found, focus) : 0);
+        setChosen(!keepFocus);
+        setPicked([]);
+      })
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setBusy(false));
+  };
+
   useEffect(() => {
     api
       .defaultDatabase()
       .then((path) => {
         setDb(path);
-        return api.snapshotHistory(path);
+        load(path, true);
       })
-      .then((found) => {
-        setTargets(found);
-        setAt(pick(found, focus));
-      })
-      .catch((err) => setError(errorMessage(err)))
-      .finally(() => setBusy(false));
+      .catch((err) => {
+        setError(errorMessage(err));
+        setBusy(false);
+      });
     // Deliberately once: `focus` is what the window showed when this opened,
     // and reloading under the user because the tree changed behind a dialog
     // would move the selection out from under their pointer.
@@ -351,6 +369,22 @@ export function HistoryDialog({
         <div className="body">
           {error && <div className="error">{error}</div>}
 
+          {/* The same field the snapshot list has. Without it this view could
+              only ever read the default database, while the CLI's `--db` puts
+              snapshots wherever the user says. */}
+          <div className="field">
+            <label htmlFor="history-db">{d.snapshots.databaseLabel}</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                id="history-db"
+                value={db}
+                onChange={(e) => setDb(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <button onClick={() => load(db, false)}>{d.common.reload}</button>
+            </div>
+          </div>
+
           {!busy && targets.length === 0 && (
             <div className="empty">
               <p style={{ margin: 0 }}>{d.snapshots.emptyTitle}</p>
@@ -374,7 +408,7 @@ export function HistoryDialog({
                   }}
                 >
                   {targets.map((t, i) => (
-                    <option key={`${t.host} ${t.root}`} value={i}>
+                    <option key={`${t.host} ${t.root}`} value={i}>
                       {fill(d.history.targetOption, {
                         host: t.host,
                         root: t.root,
