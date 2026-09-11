@@ -35,8 +35,9 @@ use std::time::{Duration, Instant};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use spacetrace_scan_core::{
-    capacity_of, scan, Capacity, EntryKind, NodeId, Phase, ScanOptions, ScanProgress, ScanStats,
-    SizeBasis, StallWatch, Tree, STALL_GRACE,
+    age_profile_at, capacity_of, median_bands, scan, AgeProfile, Capacity, EntryKind, NodeId,
+    Phase, ScanOptions, ScanProgress, ScanStats, SizeBasis, StallWatch, Tree, DEFAULT_EDGES,
+    STALL_GRACE,
 };
 use spacetrace_store::{ScanMeta, Store};
 use spacetrace_treemap::{layout, LayoutOptions, Rect};
@@ -88,6 +89,24 @@ struct Loaded {
     hidden: HashSet<NodeId>,
     /// Capacity of the filesystem the root sits on, when it could be measured.
     capacity: Option<Capacity>,
+    /// Which age band each entry's bytes sit in, computed on first layout.
+    ///
+    /// A `OnceLock` because a layout is requested on every zoom and every
+    /// window resize, and this is a pass over the whole arena — cheap once
+    /// (18.9 MB and 3.5 ms for 412,380 entries, measured in `scan-core`), not
+    /// cheap per frame. Filling it under the *read* lock is the other half:
+    /// asking for a colour must not queue behind a snapshot being written,
+    /// which is the reason this struct sits behind an `RwLock` at all.
+    ///
+    /// Computed against the clock at that moment and then kept. The bands are
+    /// days wide and a window stays open for hours, so recomputing as time
+    /// passes would repaint the map for a boundary nobody crossed while
+    /// looking at it.
+    ///
+    /// Cleared when the tree is edited: entries moved to the Trash change what
+    /// the folders above them hold, and a stale median is a colour making a
+    /// claim about bytes that are gone.
+    bands: std::sync::OnceLock<Vec<Option<u8>>>,
     /// What the scan counted, kept so the result can be stored later.
     ///
     /// It used to be dropped once the opening view had been built, which meant
@@ -128,6 +147,18 @@ pub struct AppState {
     scans_started: AtomicU64,
 }
 
+/// Seconds since the Unix epoch, for the age bands.
+///
+/// A clock before 1970 is not worth a branch: every file then reads as
+/// undated, which is the honest outcome and exactly what the bands already do
+/// with a timestamp they cannot place.
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 /// Returned when a request carries ids from a tree that is no longer open.
 /// Callers are expected to recognise it and simply drop the result.
 pub const STALE_GENERATION: &str = "stale_generation";
@@ -166,6 +197,29 @@ impl AppState {
         f(&loaded.tree, &loaded.source)
     }
 
+    /// Read the open tree along with its age bands, computing them once.
+    ///
+    /// The closure is handed the bands rather than the `Loaded`, so the
+    /// `OnceLock` cannot be reached — and therefore cannot be filled a second
+    /// time with a different clock — from anywhere else.
+    fn with_bands_at<T>(
+        &self,
+        generation: u64,
+        f: impl FnOnce(&Tree, &[Option<u8>]) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
+        let guard = self.current.read().map_err(|_| lock_poisoned())?;
+        let loaded = guard
+            .as_ref()
+            .ok_or_else(|| AppError::new("nothing_open"))?;
+        if loaded.generation != generation {
+            return Err(AppError::new(STALE_GENERATION));
+        }
+        let bands = loaded
+            .bands
+            .get_or_init(|| median_bands(&loaded.tree, now_seconds(), DEFAULT_EDGES));
+        f(&loaded.tree, bands)
+    }
+
     /// Read the open tree along with the entries that should not be listed.
     fn with_visible_at<T>(
         &self,
@@ -199,6 +253,9 @@ impl AppState {
         if loaded.generation != generation {
             return Err(AppError::new(STALE_GENERATION));
         }
+        // Before the edit, not after: `f` returns early on failure, and a
+        // half-applied edit would leave the cache describing neither tree.
+        loaded.bands = std::sync::OnceLock::new();
         f(loaded)
     }
 
@@ -217,6 +274,7 @@ impl AppState {
             generation,
             hidden: HashSet::new(),
             capacity,
+            bands: std::sync::OnceLock::new(),
             stats,
         });
         Ok(generation)
@@ -1019,6 +1077,12 @@ pub struct TileArrays {
     pub is_dir: Vec<bool>,
     pub truncated: Vec<bool>,
     pub category: Vec<u8>,
+    /// Age band per tile, or -1 where there is nothing datable to colour.
+    ///
+    /// `i8` and not `Option<u8>`: an option array crosses the IPC boundary as
+    /// `(number | null)[]`, which the canvas would have to branch on per tile,
+    /// and -1 is already how `parent` says "not applicable" here.
+    pub age_band: Vec<i8>,
     /// Parent index *within these arrays*, or -1 for the root tile. Lets the
     /// frontend walk the map without asking anything else.
     pub parent: Vec<i32>,
@@ -1029,7 +1093,7 @@ pub struct TileArrays {
 /// own children, so painting the array in order puts children on top.
 #[tauri::command(async)]
 fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<TileArrays, AppError> {
-    state.with_tree_at(req.generation, |tree, _| {
+    state.with_bands_at(req.generation, |tree, bands| {
         if req.node as usize >= tree.len() {
             return Err(AppError::new("no_entry").with("node", req.node));
         }
@@ -1066,6 +1130,13 @@ fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<Tile
             arrays
                 .category
                 .push(Category::of(tree.name(tile.node), n.kind) as u8);
+            arrays.age_band.push(
+                bands
+                    .get(tile.node as usize)
+                    .copied()
+                    .flatten()
+                    .map_or(-1, |b| b as i8),
+            );
             arrays.parent.push(if tile.node == req.node {
                 -1
             } else {
@@ -1075,6 +1146,30 @@ fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<Tile
         }
         arrays.count = arrays.node.len();
         Ok(arrays)
+    })
+}
+
+/// The age distribution of one folder, for the heat map's key.
+///
+/// Scoped to `node` rather than the whole scan on purpose: the key sits beside
+/// a picture of one folder, and a key whose numbers come from somewhere else
+/// is worse than none, because it looks like it agrees with what is drawn.
+///
+/// The clock is read here rather than reused from the cached bands. They can
+/// differ by hours in a window left open overnight, and the direction of the
+/// disagreement is harmless — the key would name a band a file has since left,
+/// which is a number being stale, not a colour being wrong.
+#[tauri::command(async)]
+fn age_profile(
+    state: tauri::State<'_, AppState>,
+    generation: u64,
+    node: NodeId,
+) -> Result<AgeProfile, AppError> {
+    state.with_tree_at(generation, |tree, _| {
+        if node as usize >= tree.len() {
+            return Err(AppError::new("no_entry").with("node", node));
+        }
+        Ok(age_profile_at(tree, node, now_seconds(), DEFAULT_EDGES))
     })
 }
 
@@ -2008,6 +2103,7 @@ pub fn run() {
             entries,
             children,
             ancestors,
+            age_profile,
             absolute_path,
             reveal,
             move_to_trash,
@@ -2238,6 +2334,64 @@ mod tests {
         Source::Live { root: root.into() }
     }
 
+    /// The age bands are cached for the life of an opened tree, and moving an
+    /// entry to the Trash changes what the folders above it hold. A stale
+    /// cache paints a folder in a colour that describes bytes which are gone —
+    /// and because the generation deliberately survives an in-place edit, no
+    /// other check catches it.
+    #[test]
+    fn trashing_an_entry_recomputes_the_age_bands() {
+        use spacetrace_scan_core::ImportedNode;
+
+        // Ages are built from the real clock, because `with_bands_at` reads it
+        // and a fixture pinned to an invented "now" classifies every file by
+        // the distance between the two dates instead of by its age.
+        const DAY: i64 = 86_400;
+        let now = now_seconds();
+        let aged = |name: &str, days: i64, bytes: u64| {
+            let mut node = ImportedNode::file(name, bytes, bytes);
+            node.mtime = now - days * DAY;
+            node
+        };
+
+        // Mostly ancient, so the root's median byte is in the oldest band.
+        let mut root = ImportedNode::dir("root");
+        root.children = vec![aged("new.bin", 1, 100), aged("old.bin", 3_000, 900)];
+        let tree = Tree::from_nested(PathBuf::from("/x"), root);
+
+        let state = AppState::default();
+        let generation = state
+            .set(tree, Source::Live { root: "/x".into() }, None, None)
+            .unwrap();
+
+        let oldest = state
+            .with_bands_at(generation, |tree, bands| Ok(bands[tree.root() as usize]))
+            .unwrap();
+        assert_eq!(
+            oldest,
+            Some(5),
+            "the ancient file carries most of the bytes"
+        );
+
+        // Take the ancient file away; the root is now almost entirely new.
+        state
+            .edit_tree_at(generation, |loaded| {
+                let victim = loaded
+                    .tree
+                    .children(loaded.tree.root())
+                    .find(|&id| loaded.tree.name(id) == "old.bin")
+                    .unwrap();
+                loaded.tree.remove_subtree(victim);
+                Ok(())
+            })
+            .unwrap();
+
+        let after = state
+            .with_bands_at(generation, |tree, bands| Ok(bands[tree.root() as usize]))
+            .unwrap();
+        assert_eq!(after, Some(0), "the cache must not survive the edit");
+    }
+
     /// Storing the open scan. Each refusal here is a snapshot that would have
     /// been wrong, not a convenience check.
     mod saving {
@@ -2250,6 +2404,7 @@ mod tests {
                 generation: 1,
                 hidden: hidden.iter().copied().collect(),
                 capacity: None,
+                bands: std::sync::OnceLock::new(),
                 stats,
             }
         }

@@ -24,6 +24,24 @@ export const de: Dictionary = {
     note: "Die Kommandozeile und der Agent bleiben englisch: Ein übersetzter Befehl würde nicht laufen.",
   },
 
+  age: {
+    colorBy: "Karte einfärben nach",
+    byKind: "Art",
+    byAge: "Alter",
+    byKindNote: "Färbt jede Datei danach, was sie ist.",
+    byAgeNote:
+      "Färbt nach der letzten Änderung. Ein Ordner bekommt das Alter seines mittleren Bytes: die Hälfte seines Inhalts ist älter, als die Farbe sagt.",
+    week: "Unter einer Woche",
+    month: "Unter einem Monat",
+    quarter: "1–3 Monate",
+    year: "3–12 Monate",
+    twoYears: "1–2 Jahre",
+    older: "Über 2 Jahre",
+    upToDays: "Bis zu {days} Tage",
+    unknown: "Ohne Datum",
+    unknownNote:
+      "Dateien, deren Änderungszeit nie erfasst wurde. Getrennt von den Bändern gezeigt und nicht als ältestes: ein Snapshot aus einem Format ohne Zeitstempel würde sonst als ein halbes Jahrhundert alt ausgewiesen.",
+  },
   basis: {
     onDisk: "Auf der Festplatte",
     logical: "Logisch",

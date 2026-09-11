@@ -197,8 +197,37 @@ export interface TileArrays {
   isDir: boolean[];
   truncated: boolean[];
   category: number[];
+  /**
+   * Age band per tile, oldest band highest, or -1 where there is nothing
+   * datable to colour. Decided in the core — see `src/age.ts` for why no rule
+   * about it lives on this side.
+   */
+  ageBand: number[];
   parent: number[];
   count: number;
+}
+
+/**
+ * One age band and the bytes in it.
+ *
+ * Field names are the core's, in snake_case, because this type is serialised
+ * straight out of `scan-core` and `spacetrace age --json` publishes the same
+ * shape. Renaming it for the sake of house style here would mean either two
+ * spellings of one thing or a breaking change to a released command's output.
+ */
+export interface AgeBucket {
+  /** Upper bound in days, or null for the open-ended oldest band. */
+  up_to_days: number | null;
+  files: number;
+  size: number;
+  alloc: number;
+}
+
+export interface AgeProfile {
+  /** One per edge, plus a final open-ended band. Newest first. */
+  buckets: AgeBucket[];
+  /** Files whose modification time was never recorded. */
+  unknown: AgeBucket;
 }
 
 /** One measurement in a target's history. */
@@ -341,6 +370,11 @@ export const api = {
         basis: req.basis,
       },
     });
+  },
+
+  /** The age distribution of one folder, for the heat map's key. */
+  ageProfile(generation: number, node: number): Promise<AgeProfile> {
+    return call("age_profile", { generation, node });
   },
 
   labels(generation: number, nodes: number[]): Promise<string[]> {

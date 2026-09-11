@@ -36,6 +36,24 @@ export const en = {
     note: "The command line and the agent stay in English: a translated command would not run.",
   },
 
+  age: {
+    colorBy: "Colour the map by",
+    byKind: "Kind",
+    byAge: "Age",
+    byKindNote: "Colour each file by what it is.",
+    byAgeNote:
+      "Colour by when it was last changed. A folder takes the age of its middle byte, so half of what is inside it is older than its colour says.",
+    week: "Under a week",
+    month: "Under a month",
+    quarter: "1–3 months",
+    year: "3–12 months",
+    twoYears: "1–2 years",
+    older: "Over 2 years",
+    upToDays: "Up to {days} days",
+    unknown: "No date",
+    unknownNote:
+      "Files whose modification time was never recorded. Shown apart from the bands rather than as the oldest one: a snapshot from a format that carries no timestamps would otherwise be announced as half a century old.",
+  },
   basis: {
     onDisk: "On disk",
     logical: "Logical",

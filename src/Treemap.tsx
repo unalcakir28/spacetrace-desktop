@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage, isStale, type TileArrays } from "./api";
+import { bandColor } from "./age";
 import type { SizeBasis } from "./basis";
 import { colorByIndex } from "./categories";
 import * as fmt from "./format";
@@ -46,6 +47,14 @@ export interface TreemapProps {
   revision: unknown;
   /** Which measure the rectangles are proportional to. */
   basis: SizeBasis;
+  /**
+   * What the colours mean. Only the paint changes — the same layout, the same
+   * rectangles, the same sizes. Recolouring rather than opening a second view
+   * is the point: "the big folder" and "the cold folder" are the same picture
+   * asked two questions, and switching between them in place is what lets a
+   * reader see that the 400 GB is also the untouched 400 GB.
+   */
+  colorBy: "category" | "age";
   onSelect(node: number): void;
   /** Called when a directory tile is activated, to zoom into it. */
   onZoom(node: number): void;
@@ -82,6 +91,7 @@ export function Treemap({
   selection,
   revision,
   basis,
+  colorBy,
   onSelect,
   onZoom,
 }: TreemapProps) {
@@ -198,7 +208,16 @@ export function Treemap({
       const isDir = tiles.isDir[i]!;
       const depth = tiles.depth[i]!;
 
-      if (isDir) {
+      // In age mode a directory is coloured too, and that is the whole
+      // difference between a heat map and a recoloured category map. At any
+      // depth worth looking at, most of the area is folders; leaving them grey
+      // would answer "which *file* is cold", which nobody asks — the actionable
+      // unit is a folder. The band it gets is its subtree's median byte, worked
+      // out in the core, so the colour is a claim about what is inside it and
+      // not about when the folder itself was last written.
+      const heat = colorBy === "age" ? bandColor(tiles.ageBand[i]!) : null;
+
+      if (isDir && !heat) {
         // Directories are containers, not a category: they get a surface that
         // lifts slightly with depth, so nesting is visible, while the colour in
         // the map stays reserved for what the files actually are.
@@ -211,9 +230,23 @@ export function Treemap({
           ctx.lineWidth = 1;
           ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
         }
+      } else if (!heat && colorBy === "age") {
+        // A file with no recorded time. Left as bare surface rather than given
+        // the newest band: a colour here would be read as a measurement, and
+        // there was nothing to measure.
+        ctx.fillStyle = "rgba(70, 82, 125, 0.22)";
+        ctx.fillRect(x, y, w, h);
+        if (w > 4 && h > 4) {
+          ctx.strokeStyle = "rgba(8, 11, 20, 0.6)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        }
       } else {
-        ctx.fillStyle = colorByIndex(tiles.category[i]!);
-        ctx.globalAlpha = 0.88;
+        ctx.fillStyle = heat ?? colorByIndex(tiles.category[i]!);
+        // Folders sit under their own children in age mode, so they are held
+        // back a little: without it a parent and its contents are one flat
+        // slab and the nesting disappears.
+        ctx.globalAlpha = isDir ? 0.55 : 0.88;
         ctx.fillRect(x, y, w, h);
         ctx.globalAlpha = 1;
         if (w > 4 && h > 4) {
@@ -270,7 +303,7 @@ export function Treemap({
     if (hover && hover.index < tiles.count && !chosen.has(tiles.node[hover.index]!)) {
       outline(ctx, tiles, hover.index, "rgba(255, 255, 255, 0.8)", 1.5);
     }
-  }, [tiles, labels, size, selection, hover]);
+  }, [tiles, labels, size, selection, hover, colorBy]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(draw);
@@ -362,7 +395,8 @@ export function Treemap({
     // Read from the layout rather than the fetched detail: it is already here,
     // and it cannot disagree with the tile being pointed at.
     const category = hover.index < tiles.count ? tiles.category[hover.index]! : 0;
-    return { left, top, detail, category };
+    const ageBand = hover.index < tiles.count ? tiles.ageBand[hover.index]! : -1;
+    return { left, top, detail, category, ageBand };
   }, [hover, detail, tiles]);
 
   return (
@@ -385,20 +419,37 @@ export function Treemap({
             {tooltip.detail.isDir ? "/" : ""}
           </div>
           <div className="meta">
-            {/* The category, in its own colour, so the tooltip and the tile
-                under the pointer plainly refer to the same thing. */}
-            {!tooltip.detail.isDir && (
-              <span
-                className="swatch"
-                style={{
-                  background: colorByIndex(tooltip.category),
-                  width: 8,
-                  height: 8,
-                  borderRadius: 2,
-                  flex: "none",
-                }}
-              />
-            )}
+            {/* The swatch says what the tile's own colour means, so it has to
+                follow the mode. In category mode it names the kind; in age
+                mode it names the band, and for a folder that band is a real
+                claim about its contents rather than a container tone. A
+                tooltip showing a colour the tile is not painted in would make
+                the reader distrust both. */}
+            {colorBy === "age"
+              ? tooltip.ageBand >= 0 && (
+                  <span
+                    className="swatch"
+                    style={{
+                      background: bandColor(tooltip.ageBand) ?? undefined,
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      flex: "none",
+                    }}
+                  />
+                )
+              : !tooltip.detail.isDir && (
+                  <span
+                    className="swatch"
+                    style={{
+                      background: colorByIndex(tooltip.category),
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      flex: "none",
+                    }}
+                  />
+                )}
             <span className="num">
               {fmt.bytes(tooltip.detail.size)}
               {tooltip.detail.isDir &&

@@ -60,6 +60,19 @@
   --cat-archive: #45d3ba;
   --cat-code: #7bd88f;
 
+  /* Age bands, newest to oldest. One hue ramp rather than six hues: ages have
+     an order and kinds do not, and a reader can rank a ramp at a glance. Cool
+     for new, hot for old — the reverse of temperature and the right way round
+     for attention, since red is what the eye goes to and old bytes are what is
+     worth moving. Lightness climbs with the hue so the ramp survives being
+     read by someone who cannot separate red from green. */
+  --age-0: #3f6fd8;
+  --age-1: #3f9fd0;
+  --age-2: #45c2a6;
+  --age-3: #d9c24f;
+  --age-4: #e8944a;
+  --age-5: #e2564f;
+
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
@@ -794,6 +807,30 @@ button:focus-visible,
   height: 9px;
   border-radius: 2px;
   flex: none;
+}
+
+/* The age key carries a figure per band, so its items need more room than the
+   category key's bare names and must not reflow into an unreadable ribbon. */
+.legend.age .item {
+  gap: 6px;
+}
+
+.legend.age .bytes {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+/* Bytes with no recorded time. Set apart rather than placed in the ramp: it is
+   not an age, and sitting it beside the bands would read as one. */
+.legend.age .unknown .swatch {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--cat-other),
+    var(--cat-other) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+  border: 1px solid var(--border);
 }
 
 /* --------------------------------------------------------------- tree panel */

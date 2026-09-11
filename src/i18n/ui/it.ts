@@ -28,6 +28,24 @@ export const it: Dictionary = {
     note: "La riga di comando e l'agente restano in inglese: un comando tradotto non funzionerebbe.",
   },
 
+  age: {
+    colorBy: "Colora la mappa per",
+    byKind: "Tipo",
+    byAge: "Età",
+    byKindNote: "Colora ogni file in base a ciò che è.",
+    byAgeNote:
+      "Colora in base all'ultima modifica. Una cartella prende l'età del suo byte mediano: metà di ciò che contiene è più vecchio di quanto dica il colore.",
+    week: "Meno di una settimana",
+    month: "Meno di un mese",
+    quarter: "1–3 mesi",
+    year: "3–12 mesi",
+    twoYears: "1–2 anni",
+    older: "Oltre 2 anni",
+    upToDays: "Fino a {days} giorni",
+    unknown: "Senza data",
+    unknownNote:
+      "File la cui data di modifica non è mai stata registrata. Mostrati a parte e non come banda più vecchia: uno snapshot proveniente da un formato senza date sarebbe altrimenti annunciato come vecchio di mezzo secolo.",
+  },
   basis: {
     onDisk: "Su disco",
     logical: "Logico",

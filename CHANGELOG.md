@@ -10,6 +10,16 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## Unreleased
+
+### Added
+
+- The map can be coloured by age instead of by kind. Blue is this week, red is over two years, and a folder takes the age of its middle byte — so half of what is inside it is older than its colour says. The key beside it gives the bytes in each band for the folder on screen, which turns "red is old" into "48 GB here has not been touched in two years". A folder's own date is deliberately ignored: it moves when anything is added beside it and says nothing about what is inside.
+
+### Fixed
+
+- Snapshots brought in with `spacetrace import` open in the app. They were stored with a malformed root, so the app refused them as an unusable tree.
+
 ## 0.6.0 — 2026-09-11
 
 ### Added

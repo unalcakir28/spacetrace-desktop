@@ -28,6 +28,7 @@ import {
   type Opened,
   type ScanRequest,
   type ScanTick,
+  type AgeProfile,
   type StartingPoints,
   type TrashOutcome,
   type TrashTick,
@@ -39,6 +40,7 @@ import {
   useSizeBasis,
   type SizeBasis,
 } from "./basis";
+import { bandColor, bandLabel, bucketBytes, unknownBytes } from "./age";
 import { CATEGORIES, categoryColor, categoryNote } from "./categories";
 import { dict, fill, useDict } from "./i18n";
 import { About } from "./About";
@@ -57,6 +59,9 @@ import { Treemap } from "./Treemap";
 import * as fmt from "./format";
 
 type Dialog = "scan" | "snapshots" | "history" | "remote" | "save" | "about" | null;
+
+/** What the map's colours stand for. */
+type ColorMode = "category" | "age";
 
 export function App() {
   const d = useDict();
@@ -81,6 +86,12 @@ export function App() {
   );
   const [widths, setWidths] = usePaneWidths();
   const [basis, setBasis] = useSizeBasis();
+  // Not remembered between sessions, unlike the basis. The basis changes what
+  // every number in the window means and a person picks it once; the colour
+  // mode is a question asked of the folder in front of you, and starting a new
+  // window in it would present a map whose colours mean something the reader
+  // did not ask about.
+  const [colorBy, setColorBy] = useState<ColorMode>("category");
   const { toasts, show, dismiss } = useToasts();
 
   useEffect(() => {
@@ -474,6 +485,7 @@ export function App() {
           </button>
         )}
         {opened && <BasisSwitch basis={basis} onChange={setBasis} busy={!!working} />}
+        {opened && <ColorSwitch mode={colorBy} onChange={setColorBy} />}
         <button
           className="ghost"
           onClick={() => setDialog("about")}
@@ -567,11 +579,16 @@ export function App() {
               selection={selection}
               revision={patch}
               basis={basis}
+              colorBy={colorBy}
               onSelect={(node) => setSelection([node])}
               onZoom={setMapRoot}
             />
 
-            <Legend />
+            {colorBy === "age" ? (
+              <AgeLegend generation={opened.generation} node={mapRoot} basis={basis} />
+            ) : (
+              <Legend />
+            )}
           </div>
 
           <Resizer
@@ -841,6 +858,104 @@ function Legend() {
       ))}
       <span style={{ flex: 1 }} />
       <span>{d.map.moreInside}</span>
+    </div>
+  );
+}
+
+
+/**
+ * The heat map's key: one swatch per band with the bytes in it.
+ *
+ * Scoped to the folder the map is rooted at, and reloaded when the zoom moves,
+ * so the numbers are always about the picture beside them. A key describing
+ * the whole scan while the map shows one folder would look like it agreed.
+ *
+ * Shown with figures rather than as a bare ramp because the ramp alone cannot
+ * answer the question the feature exists for. "Red is old" is not actionable;
+ * "48 GB is older than two years" is.
+ */
+
+/**
+ * What the map's colours stand for.
+ *
+ * Beside the basis switch rather than in a menu, and for the same reason: a
+ * map whose colours mean something other than what the reader assumes is the
+ * failure this app is built to avoid. The two switches also compose — "on
+ * disk" plus "age" is the combination that answers "what is actually costing
+ * me space and has nobody touched it", which is the question behind most of
+ * the reasons anyone opens a disk tool.
+ */
+function ColorSwitch({
+  mode,
+  onChange,
+}: {
+  mode: ColorMode;
+  onChange(mode: ColorMode): void;
+}) {
+  const d = useDict();
+  const options: ColorMode[] = ["category", "age"];
+  return (
+    <div className="basis" role="group" aria-label={d.age.colorBy}>
+      {options.map((option) => (
+        <button
+          key={option}
+          className={option === mode ? "on" : undefined}
+          aria-pressed={option === mode}
+          title={option === "age" ? d.age.byAgeNote : d.age.byKindNote}
+          onClick={() => onChange(option)}
+        >
+          {option === "age" ? d.age.byAge : d.age.byKind}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AgeLegend({
+  generation,
+  node,
+  basis,
+}: {
+  generation: number;
+  node: number;
+  basis: SizeBasis;
+}) {
+  const d = useDict();
+  const [profile, setProfile] = useState<AgeProfile | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .ageProfile(generation, node)
+      .then((result) => !cancelled && setProfile(result))
+      // A key that failed to load is left out rather than replaced by an error
+      // strip: the map is still readable, and the colours still mean what the
+      // ramp says they mean.
+      .catch(() => !cancelled && setProfile(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [generation, node]);
+
+  if (!profile) return <div className="legend age" />;
+
+  const unknown = unknownBytes(profile, basis);
+  return (
+    <div className="legend age">
+      {profile.buckets.map((bucket, band) => (
+        <span className="item" key={bucket.up_to_days ?? "older"}>
+          <span className="swatch" style={{ background: bandColor(band) ?? undefined }} />
+          {bandLabel(bucket.up_to_days)}
+          <span className="bytes">{fmt.bytes(bucketBytes(bucket, basis))}</span>
+        </span>
+      ))}
+      {unknown > 0 && (
+        <span className="item unknown" title={d.age.unknownNote}>
+          <span className="swatch" />
+          {d.age.unknown}
+          <span className="bytes">{fmt.bytes(unknown)}</span>
+        </span>
+      )}
     </div>
   );
 }

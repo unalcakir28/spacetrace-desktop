@@ -24,6 +24,24 @@ export const tr: Dictionary = {
     note: "Komut satırı ve ajan İngilizce kalır: çevrilmiş bir komut çalışmaz.",
   },
 
+  age: {
+    colorBy: "Haritayı şuna göre renklendir",
+    byKind: "Tür",
+    byAge: "Yaş",
+    byKindNote: "Her dosyayı ne olduğuna göre renklendirir.",
+    byAgeNote:
+      "En son ne zaman değiştiğine göre renklendirir. Bir klasör ortadaki baytının yaşını alır; yani içindekilerin yarısı renginin söylediğinden daha eski.",
+    week: "Bir haftadan yeni",
+    month: "Bir aydan yeni",
+    quarter: "1–3 ay",
+    year: "3–12 ay",
+    twoYears: "1–2 yıl",
+    older: "2 yıldan eski",
+    upToDays: "{days} güne kadar",
+    unknown: "Tarihsiz",
+    unknownNote:
+      "Değişiklik zamanı hiç kaydedilmemiş dosyalar. En eski bant yerine ayrı gösteriliyor: zaman damgası taşımayan bir biçimden gelen snapshot aksi hâlde yarım asırlık ilan edilirdi.",
+  },
   basis: {
     onDisk: "Diskte",
     logical: "Mantıksal",

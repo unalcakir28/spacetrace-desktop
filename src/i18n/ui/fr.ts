@@ -24,6 +24,24 @@ export const fr: Dictionary = {
     note: "La ligne de commande et l'agent restent en anglais : une commande traduite ne s'exécuterait pas.",
   },
 
+  age: {
+    colorBy: "Colorer la carte par",
+    byKind: "Type",
+    byAge: "Âge",
+    byKindNote: "Colore chaque fichier selon sa nature.",
+    byAgeNote:
+      "Colore selon la dernière modification. Un dossier prend l'âge de son octet médian : la moitié de ce qu'il contient est plus ancienne que ce que dit sa couleur.",
+    week: "Moins d'une semaine",
+    month: "Moins d'un mois",
+    quarter: "1 à 3 mois",
+    year: "3 à 12 mois",
+    twoYears: "1 à 2 ans",
+    older: "Plus de 2 ans",
+    upToDays: "Jusqu'à {days} jours",
+    unknown: "Sans date",
+    unknownNote:
+      "Fichiers dont la date de modification n'a jamais été enregistrée. Affichés à part plutôt que dans la bande la plus ancienne : un instantané issu d'un format sans horodatage serait sinon annoncé comme vieux d'un demi-siècle.",
+  },
   basis: {
     onDisk: "Sur le disque",
     logical: "Logique",
