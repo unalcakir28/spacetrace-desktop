@@ -56,6 +56,7 @@ import { DEFAULT_WIDTHS, Resizer, usePaneWidths } from "./Resizer";
 import { SaveDialog } from "./SaveDialog";
 import { Toasts, useToasts } from "./Toasts";
 import { TrashDialog } from "./TrashDialog";
+import { Sunburst } from "./Sunburst";
 import { Treemap } from "./Treemap";
 import * as fmt from "./format";
 
@@ -63,6 +64,16 @@ type Dialog = "scan" | "snapshots" | "history" | "remote" | "save" | "about" | n
 
 /** What the map's colours stand for. */
 type ColorMode = "category" | "age";
+
+/**
+ * Which shape the same tree is drawn in.
+ *
+ * Not remembered between sessions, like the colour mode and unlike the basis:
+ * the treemap answers "what is taking up the space" and the rings answer "how
+ * is this nested", and neither is a setting so much as a question asked of the
+ * folder in front of you.
+ */
+type ViewShape = "map" | "rings";
 
 export function App() {
   const d = useDict();
@@ -93,6 +104,7 @@ export function App() {
   // window in it would present a map whose colours mean something the reader
   // did not ask about.
   const [colorBy, setColorBy] = useState<ColorMode>("category");
+  const [shape, setShape] = useState<ViewShape>("map");
   const { toasts, show, dismiss } = useToasts();
 
   useEffect(() => {
@@ -487,6 +499,7 @@ export function App() {
         )}
         {opened && <BasisSwitch basis={basis} onChange={setBasis} busy={!!working} />}
         {opened && <ColorSwitch mode={colorBy} onChange={setColorBy} />}
+        {opened && <ShapeSwitch shape={shape} onChange={setShape} />}
         <button
           className="ghost"
           onClick={() => setDialog("about")}
@@ -578,16 +591,29 @@ export function App() {
               </div>
             )}
 
-            <Treemap
-              generation={opened.generation}
-              root={mapRoot}
-              selection={selection}
-              revision={patch}
-              basis={basis}
-              colorBy={colorBy}
-              onSelect={(node) => setSelection([node])}
-              onZoom={setMapRoot}
-            />
+            {shape === "rings" ? (
+              <Sunburst
+                generation={opened.generation}
+                root={mapRoot}
+                selection={selection}
+                revision={patch}
+                basis={basis}
+                colorBy={colorBy}
+                onSelect={(node) => setSelection([node])}
+                onZoom={setMapRoot}
+              />
+            ) : (
+              <Treemap
+                generation={opened.generation}
+                root={mapRoot}
+                selection={selection}
+                revision={patch}
+                basis={basis}
+                colorBy={colorBy}
+                onSelect={(node) => setSelection([node])}
+                onZoom={setMapRoot}
+              />
+            )}
 
             {colorBy === "age" ? (
               <AgeLegend generation={opened.generation} node={mapRoot} basis={basis} />
@@ -890,6 +916,42 @@ function Legend() {
  * me space and has nobody touched it", which is the question behind most of
  * the reasons anyone opens a disk tool.
  */
+
+/**
+ * Rectangles or rings.
+ *
+ * Beside the other two switches rather than in a menu, because it changes what
+ * the picture is claiming: area in one, angle in the other. A reader who does
+ * not know which they are looking at will read one as the other, and the two
+ * disagree in exactly the place it matters — a small folder far out on a ring
+ * covers more of the screen than a large one near the middle.
+ */
+function ShapeSwitch({
+  shape,
+  onChange,
+}: {
+  shape: ViewShape;
+  onChange(shape: ViewShape): void;
+}) {
+  const d = useDict();
+  const options: ViewShape[] = ["map", "rings"];
+  return (
+    <div className="basis" role="group" aria-label={d.rings.asMap}>
+      {options.map((option) => (
+        <button
+          key={option}
+          className={option === shape ? "on" : undefined}
+          aria-pressed={option === shape}
+          title={option === "rings" ? d.rings.asRingsNote : d.rings.asMapNote}
+          onClick={() => onChange(option)}
+        >
+          {option === "rings" ? d.rings.asRings : d.rings.asMap}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ColorSwitch({
   mode,
   onChange,

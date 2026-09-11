@@ -24,6 +24,15 @@ export const de: Dictionary = {
     note: "Die Kommandozeile und der Agent bleiben englisch: Ein übersetzter Befehl würde nicht laufen.",
   },
 
+  rings: {
+    unnamed: "dieser Eintrag",
+    shareOfView: "{percent} des Gezeigten",
+    asMap: "Karte",
+    asRings: "Ringe",
+    asMapNote: "Rechtecke, bemessen nach dem Platz, den jeder Eintrag belegt.",
+    asRingsNote:
+      "Ringe, einer je Ebene. Der Winkel eines Eintrags ist sein Anteil an dem Ordner, in dem er liegt — so wird die Verschachtelung sichtbar. Ein weiter außen liegender Bogen bedeckt bei gleicher Größe aber mehr Fläche: vergleichen Sie Winkel, nicht Flächen.",
+  },
   live: {
     starting: "Oberste Ebene wird gelesen…",
     found: "Was der Scan bisher gefunden hat — Ordner wachsen beim Lesen",

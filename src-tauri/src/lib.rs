@@ -40,6 +40,7 @@ use spacetrace_scan_core::{
     STALL_GRACE,
 };
 use spacetrace_store::{ScanMeta, Store};
+use spacetrace_treemap::sunburst::{sunburst, SunburstOptions};
 use spacetrace_treemap::{layout, squarify, LayoutOptions, Rect};
 use tauri::Emitter;
 
@@ -1291,6 +1292,116 @@ fn live_layout(
         .collect()
 }
 
+// ------------------------------------------------------------------ rings
+
+/// Arcs as parallel arrays, in draw order.
+///
+/// The same shape as [`TileArrays`] and for the same reason: numbers only, no
+/// strings, so a ring of two thousand segments is a few dozen kilobytes rather
+/// than megabytes. Names are fetched separately for the handful wide enough to
+/// carry one.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArcArrays {
+    pub node: Vec<NodeId>,
+    /// Radians clockwise from twelve o'clock.
+    pub start: Vec<f64>,
+    pub sweep: Vec<f64>,
+    pub inner: Vec<f64>,
+    pub outer: Vec<f64>,
+    pub depth: Vec<u16>,
+    pub is_dir: Vec<bool>,
+    pub truncated: Vec<bool>,
+    pub category: Vec<u8>,
+    pub age_band: Vec<i8>,
+    pub count: usize,
+    /// How far the drawing reaches, so the view can centre and scale it
+    /// without re-deriving what the layout already knows.
+    pub radius: f64,
+}
+
+/// snake_case, like every other request here and unlike every reply.
+///
+/// The direction decides the spelling. A reply is read by `api.ts`, which runs
+/// everything through `camelize`; a request is written by `api.ts` and read by
+/// serde, so it carries the Rust names. The first version of this struct had
+/// `rename_all = "camelCase"` and `maxDepth` would have silently arrived as
+/// `None` for ever — an `Option` field that is simply absent is not an error.
+#[derive(Debug, Deserialize)]
+pub struct SunburstRequest {
+    pub generation: u64,
+    pub node: NodeId,
+    /// Half the smaller side of the drawing area: the rings have to fit.
+    pub radius: f64,
+    pub max_depth: Option<u16>,
+    pub basis: SizeBasis,
+}
+
+/// Lay a subtree out as rings.
+///
+/// Ring thickness is derived from the space available rather than fixed, so
+/// the picture fills its panel at any window size instead of being clipped or
+/// stranded in the middle. The hole keeps its share of the radius for the same
+/// reason it exists at all — the innermost ring is the one being read.
+#[tauri::command(async)]
+fn rings(state: tauri::State<'_, AppState>, req: SunburstRequest) -> Result<ArcArrays, AppError> {
+    state.with_bands_at(req.generation, |tree, bands| {
+        if req.node as usize >= tree.len() {
+            return Err(AppError::new("no_entry").with("node", req.node));
+        }
+        if req.radius <= 0.0 {
+            return Ok(ArcArrays::default());
+        }
+
+        // Enough rings to be worth drawing, few enough that each stays thick
+        // enough to aim at. Eight is what fits a typical panel; the cap the
+        // caller asks for wins when it is smaller.
+        let wanted = req.max_depth.unwrap_or(8).max(1);
+        let hole = req.radius * 0.18;
+        let ring = (req.radius - hole) / f64::from(wanted);
+
+        let map = sunburst(
+            tree,
+            req.node,
+            &SunburstOptions {
+                ring,
+                hole,
+                max_depth: Some(wanted),
+                basis: req.basis,
+                ..SunburstOptions::default()
+            },
+        );
+
+        let mut arrays = ArcArrays {
+            radius: map.radius(),
+            ..ArcArrays::default()
+        };
+        for arc in map.arcs() {
+            let n = tree.node(arc.node);
+            arrays.node.push(arc.node);
+            arrays.start.push(arc.start);
+            arrays.sweep.push(arc.sweep);
+            arrays.inner.push(arc.inner_radius);
+            arrays.outer.push(arc.outer_radius);
+            arrays.depth.push(arc.depth);
+            arrays.is_dir.push(n.is_dir());
+            arrays.truncated.push(arc.truncated);
+            arrays
+                .category
+                .push(Category::of(tree.name(arc.node), n.kind) as u8);
+            arrays.age_band.push(
+                bands
+                    .get(arc.node as usize)
+                    .copied()
+                    .flatten()
+                    .map_or(-1, |b| b as i8),
+            );
+        }
+        arrays.count = arrays.node.len();
+        Ok(arrays)
+    })
+}
+
 /// Names for specific entries, for the tiles big enough to be labelled.
 #[tauri::command(async)]
 fn labels(
@@ -2223,6 +2334,7 @@ pub fn run() {
             ancestors,
             age_profile,
             live_tiles,
+            rings,
             absolute_path,
             reveal,
             move_to_trash,

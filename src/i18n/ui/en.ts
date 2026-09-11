@@ -36,6 +36,15 @@ export const en = {
     note: "The command line and the agent stay in English: a translated command would not run.",
   },
 
+  rings: {
+    unnamed: "this entry",
+    shareOfView: "{percent} of what is shown",
+    asMap: "Map",
+    asRings: "Rings",
+    asMapNote: "Rectangles, sized by how much space each entry takes.",
+    asRingsNote:
+      "Rings, one per level. An entry's angle is its share of the folder it is in, so nesting is visible — but an arc further out covers more ink for the same size, so compare angles rather than area.",
+  },
   live: {
     starting: "Reading the top level…",
     found: "What the scan has found so far — folders grow as it reads them",

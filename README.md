@@ -284,6 +284,7 @@ src/                    React frontend
 ├── api.ts              typed wrappers over the Tauri commands
 ├── App.tsx             shell: toolbar, progress strip, three panes
 ├── Treemap.tsx         canvas renderer, hit-testing, labels
+├── Sunburst.tsx        the same tree as rings: one per level, angle = share
 ├── FolderTree.tsx      folder panel: guides, share bars, selection, in-place edits
 ├── Inspector.tsx       detail pane for one entry or a whole selection
 ├── Progress.tsx        the strip that reports work without blocking it
@@ -294,6 +295,7 @@ src/                    React frontend
 ├── Toasts.tsx          what just happened, said once
 ├── Dialogs.tsx         scan / snapshots / remote / diff
 ├── Timeline.tsx        one folder's history: the line, and what each step cost
+├── LiveMap.tsx         what a running scan has found, while it is still running
 ├── age.ts              the heat map's palette and the words for its bands
 ├── basis.ts            on disk vs logical: the one place the choice is defined
 ├── categories.ts       the one place category colours are read from
@@ -304,8 +306,31 @@ src-tauri/
 ├── src/lib.rs          commands, view types, file-type categories
 ├── src/history.rs      snapshots grouped into the targets they are a history of
 ├── src/hints.rs        entry counts from the last scan, for the progress bar
-└── src/remote.rs       downloading a snapshot from an agent
+├── src/remote.rs       downloading a snapshot from an agent
+└── tests/wire_names.rs the field names on both sides against what the wire sends
 ```
+
+### Field names across the IPC boundary
+
+**Direction decides the spelling, and getting it backwards fails silently.**
+
+A *reply* is read by `api.ts`, which runs every response through `camelize`, so
+what arrives on the TypeScript side is camelCase whatever the Rust struct
+spells. A TypeScript interface is a claim about a shape rather than a check of
+one, so declaring the Rust spelling type-checks perfectly and then reads
+`undefined` from every object. That shipped in 0.6.1 and put six rows of
+"undefined" in the age map's key.
+
+A *request* goes the other way: `api.ts` writes it and serde reads it, so it
+carries the Rust field names. `rename_all = "camelCase"` on a request struct
+makes every multi-word field silently absent — and an absent `Option` is
+`None`, not an error.
+
+`tests/wire_names.rs` checks both, in Rust because there is no JavaScript test
+runner here. On the TypeScript side it looks only inside `export interface`
+blocks: the keys of objects passed *to* `invoke` are Rust names, and the error
+codes in the locale files are backend strings, and both are correctly
+snake_case.
 
 ## Safety
 

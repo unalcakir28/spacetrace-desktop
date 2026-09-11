@@ -172,3 +172,61 @@ export const api = {
         "the argument keys belong to Rust and must not be flagged"
     );
 }
+
+/// The other direction, and the other spelling.
+///
+/// A reply is read by `api.ts` after `camelize`, so it is camelCase; a request
+/// is written by `api.ts` and read by serde, so it carries the Rust names.
+/// Putting `rename_all = "camelCase"` on a request struct makes every
+/// multi-word field silently absent — and an absent `Option` is `None` rather
+/// than an error, so nothing anywhere says a word. That is exactly what the
+/// first version of `SunburstRequest` did.
+///
+/// Structs that derive both traits are left alone: they cross in both
+/// directions and their spelling is a judgement rather than a rule.
+#[test]
+fn no_request_struct_is_renamed_to_camel_case() {
+    let source = include_str!("../src/lib.rs");
+    let lines: Vec<&str> = source.lines().collect();
+
+    let mut offenders = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if !line.trim_start().starts_with("pub struct") && !line.trim_start().starts_with("struct")
+        {
+            continue;
+        }
+        // Look back over the attributes immediately above the struct.
+        let mut derives = String::new();
+        let mut renamed = false;
+        let mut back = index;
+        while back > 0 {
+            back -= 1;
+            let above = lines[back].trim();
+            if above.starts_with("#[derive") {
+                derives = above.to_string();
+                continue;
+            }
+            if above.starts_with("#[serde") {
+                renamed |= above.contains("rename_all = \"camelCase\"");
+                continue;
+            }
+            if above.starts_with("///") || above.starts_with("//") || above.is_empty() {
+                continue;
+            }
+            break;
+        }
+
+        let takes = derives.contains("Deserialize");
+        let gives = derives.contains("Serialize");
+        if renamed && takes && !gives {
+            offenders.push(format!("{}  (line {})", line.trim(), index + 1));
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "these are read from api.ts, which writes the Rust field names — \
+         camelCase here makes every multi-word field silently missing:\n  {}",
+        offenders.join("\n  ")
+    );
+}

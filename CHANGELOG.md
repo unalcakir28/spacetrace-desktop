@@ -15,6 +15,7 @@ because anyone can install them.
 ### Added
 
 - A first scan now shows what it is finding while it runs, instead of a blank panel and a counter. The top-level folders appear as a map and grow as their contents are read, so the big one usually announces itself long before the scan ends. The figures are what has been found so far and the view says so — a folder that has stopped growing looks exactly like one that is finished. The same layout routine draws this and the finished map, so nothing rearranges when the scan lands. A rescan leaves the map you are already reading alone, as before.
+- The same folder can now be drawn as rings instead of rectangles. One ring per level, and an entry's angle is its share of the folder it sits in — so how deep something goes, and what is nested inside what, is the picture rather than something to work out from nesting. The treemap stays the default and this is a second opinion, for a reason worth knowing: an arc further from the middle covers more of the screen for the same size, so compare angles and not areas. Clicking selects, double-clicking a folder goes into it, and the colour switch works here too.
 
 ## 0.6.2 — 2026-09-11
 

@@ -28,6 +28,15 @@ export const it: Dictionary = {
     note: "La riga di comando e l'agente restano in inglese: un comando tradotto non funzionerebbe.",
   },
 
+  rings: {
+    unnamed: "questa voce",
+    shareOfView: "{percent} di quanto è mostrato",
+    asMap: "Mappa",
+    asRings: "Anelli",
+    asMapNote: "Rettangoli, dimensionati in base allo spazio occupato da ogni voce.",
+    asRingsNote:
+      "Anelli, uno per livello. L'angolo di una voce è la sua quota nella cartella che la contiene, così l'annidamento si vede — ma un arco più esterno copre più inchiostro a parità di dimensione, quindi confronta gli angoli e non l'area.",
+  },
   live: {
     starting: "Lettura del primo livello…",
     found: "Ciò che la scansione ha trovato finora: le cartelle crescono man mano",

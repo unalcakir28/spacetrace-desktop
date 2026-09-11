@@ -24,6 +24,15 @@ export const tr: Dictionary = {
     note: "Komut satırı ve ajan İngilizce kalır: çevrilmiş bir komut çalışmaz.",
   },
 
+  rings: {
+    unnamed: "bu girdi",
+    shareOfView: "gösterilenin {percent} kadarı",
+    asMap: "Harita",
+    asRings: "Halka",
+    asMapNote: "Dikdörtgenler, her girdinin kapladığı yere göre boyutlanır.",
+    asRingsNote:
+      "Halkalar, seviye başına bir tane. Bir girdinin açısı içinde bulunduğu klasördeki payı, yani iç içelik görünür oluyor — ama dışarıdaki bir yay aynı boyut için daha çok mürekkep kaplıyor, o yüzden alanı değil açıyı karşılaştırın.",
+  },
   live: {
     starting: "Üst seviye okunuyor…",
     found: "Taramanın şu ana kadar bulduğu — klasörler okundukça büyüyor",

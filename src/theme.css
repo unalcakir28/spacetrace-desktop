@@ -1829,3 +1829,35 @@ th.right {
 @media (prefers-reduced-motion: reduce) {
   .live-dot { animation: none; }
 }
+
+/* ------------------------------------------------------------- ring view */
+
+/* The rings are centred in whatever space the panel has, so the wrapper
+   centres rather than stretches — a sunburst scaled to a wide panel would be
+   an ellipse, and an ellipse's angles are not its proportions any more. */
+.canvas-wrap.sunburst {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* What the pointer is over. A line under the picture rather than a floating
+   tooltip: the arcs are read by comparing them, and a box that follows the
+   pointer covers the neighbours being compared against. */
+.sunburst-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.sunburst-error {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 12px;
+}

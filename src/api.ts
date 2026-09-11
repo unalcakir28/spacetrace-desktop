@@ -236,6 +236,28 @@ export interface AgeProfile {
 }
 
 /**
+ * Arcs as parallel arrays, in draw order: a parent always precedes its
+ * children. Angles are radians clockwise from twelve o'clock — the layout's
+ * convention, kept here so the one place that converts to the canvas's
+ * anticlockwise-from-three is visible.
+ */
+export interface ArcArrays {
+  node: number[];
+  start: number[];
+  sweep: number[];
+  inner: number[];
+  outer: number[];
+  depth: number[];
+  isDir: boolean[];
+  truncated: boolean[];
+  category: number[];
+  ageBand: number[];
+  count: number;
+  /** How far the drawing reaches, so the view can scale without re-deriving. */
+  radius: number;
+}
+
+/**
  * One tile of the map drawn while a scan is running.
  *
  * `alloc`, `size` and `files` are what has been found under that entry **so
@@ -391,6 +413,25 @@ export const api = {
         height: req.height,
         min_area: req.minArea ?? 6,
         padding: req.padding ?? 1,
+        max_depth: req.maxDepth ?? null,
+        basis: req.basis,
+      },
+    });
+  },
+
+  /** The same subtree as rings. */
+  rings(req: {
+    generation: number;
+    node: number;
+    radius: number;
+    maxDepth?: number | null;
+    basis: SizeBasis;
+  }): Promise<ArcArrays> {
+    return call("rings", {
+      req: {
+        generation: req.generation,
+        node: req.node,
+        radius: req.radius,
         max_depth: req.maxDepth ?? null,
         basis: req.basis,
       },

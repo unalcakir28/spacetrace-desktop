@@ -24,6 +24,15 @@ export const fr: Dictionary = {
     note: "La ligne de commande et l'agent restent en anglais : une commande traduite ne s'exécuterait pas.",
   },
 
+  rings: {
+    unnamed: "cette entrée",
+    shareOfView: "{percent} de ce qui est affiché",
+    asMap: "Carte",
+    asRings: "Anneaux",
+    asMapNote: "Des rectangles, dimensionnés selon la place occupée par chaque entrée.",
+    asRingsNote:
+      "Des anneaux, un par niveau. L'angle d'une entrée est sa part du dossier qui la contient, ce qui rend l'imbrication visible — mais un arc plus à l'extérieur couvre plus d'encre à taille égale, alors comparez les angles et non les surfaces.",
+  },
   live: {
     starting: "Lecture du premier niveau…",
     found: "Ce que l'analyse a trouvé jusqu'ici — les dossiers grandissent à mesure",
