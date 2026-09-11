@@ -10,6 +10,12 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## 0.6.2 — 2026-09-11
+
+### Fixed
+
+- The age heat map's key named every band "undefined" instead of "Under a week", "1–3 months" and so on. The colours and the byte figures beside them were right; only the words were missing, which made the one part of the view that explains the colours unreadable.
+
 ## 0.6.1 — 2026-09-11
 
 ### Added

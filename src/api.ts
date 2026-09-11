@@ -210,14 +210,19 @@ export interface TileArrays {
 /**
  * One age band and the bytes in it.
  *
- * Field names are the core's, in snake_case, because this type is serialised
- * straight out of `scan-core` and `spacetrace age --json` publishes the same
- * shape. Renaming it for the sake of house style here would mean either two
- * spellings of one thing or a breaking change to a released command's output.
+ * `upToDays`, not the core's `up_to_days`: every reply goes through
+ * `camelize` above, so what reaches this side is camelCase whatever the Rust
+ * struct spells. The first version of this interface declared the Rust
+ * spelling and was wrong at runtime while type-checking perfectly — the
+ * compiler can only check a shape against what someone wrote down, and what
+ * was written down was a guess about the wire.
+ *
+ * `spacetrace age --json` still publishes snake_case; that is the CLI's
+ * contract and it does not pass through here.
  */
 export interface AgeBucket {
   /** Upper bound in days, or null for the open-ended oldest band. */
-  up_to_days: number | null;
+  upToDays: number | null;
   files: number;
   size: number;
   alloc: number;

@@ -943,9 +943,9 @@ function AgeLegend({
   return (
     <div className="legend age">
       {profile.buckets.map((bucket, band) => (
-        <span className="item" key={bucket.up_to_days ?? "older"}>
+        <span className="item" key={bucket.upToDays ?? "older"}>
           <span className="swatch" style={{ background: bandColor(band) ?? undefined }} />
-          {bandLabel(bucket.up_to_days)}
+          {bandLabel(bucket.upToDays)}
           <span className="bytes">{fmt.bytes(bucketBytes(bucket, basis))}</span>
         </span>
       ))}
