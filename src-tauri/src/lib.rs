@@ -584,6 +584,12 @@ async fn scan_directory(
         // already at a terminal, and a slider here would be a knob nobody
         // could evaluate without a stopwatch.
         threads: None,
+        // The scanner's default patience with a mounted filesystem that has
+        // stopped answering. Not exposed either: the window already shows the
+        // stall and the directory it is waiting on, so the person watching can
+        // decide what to do with far better information than a number chosen
+        // in advance would give them.
+        mount_timeout: Some(spacetrace_scan_core::MOUNT_TIMEOUT),
     };
 
     let progress = Arc::new(ScanProgress::default());

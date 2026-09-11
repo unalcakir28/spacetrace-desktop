@@ -15,6 +15,7 @@ because anyone can install them.
 ### Added
 
 - When a scan stops making progress, the progress strip now says so and names the folder it is waiting on, instead of animating a bar over a scan that is going nowhere. A network share that has stopped answering blocks in the kernel and no app can lift that — but knowing what it is waiting on is what lets you decide whether to wait or stop.
+- A folder's whole history on one line. History shows every stored snapshot of a folder as a chart, with what changed between each pair beside it; clicking a step opens the comparison for exactly that jump. The axis starts at zero, so the height of the line is the size itself.
 
 ### Performance
 
