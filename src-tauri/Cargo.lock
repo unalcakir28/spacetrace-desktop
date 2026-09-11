@@ -1069,7 +1069,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3020,7 +3020,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3283,7 +3283,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3296,7 +3296,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3354,7 +3354,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3778,13 +3778,13 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-buildinfo"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 
 [[package]]
 name = "spacetrace-changelog"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 dependencies = [
  "serde",
  "serde_json",
@@ -3792,7 +3792,7 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-desktop"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -3817,8 +3817,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-diff"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 dependencies = [
  "serde",
  "spacetrace-scan-core",
@@ -3826,8 +3826,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-scan-core"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 dependencies = [
  "libc",
  "rayon",
@@ -3837,8 +3837,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-store"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 dependencies = [
  "anyhow",
  "gethostname",
@@ -3851,8 +3851,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-treemap"
-version = "0.5.0"
-source = "git+https://github.com/unalcakir28/spacetrace#911387f8596f5ac81bf74ab4bf8e2ba6298a8c7e"
+version = "0.6.0"
+source = "git+https://github.com/unalcakir28/spacetrace#5a6a2ea4f1c30e05c17cc23645b0ef9a5c1ffb34"
 dependencies = [
  "serde",
  "spacetrace-scan-core",
@@ -4411,7 +4411,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5220,7 +5220,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
