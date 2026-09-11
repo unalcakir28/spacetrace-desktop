@@ -45,6 +45,7 @@ import { About } from "./About";
 import { UpdateBar } from "./UpdateBar";
 import { ContextMenu, type MenuItem, type MenuRequest } from "./ContextMenu";
 import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs";
+import { HistoryDialog } from "./Timeline";
 import { FolderTree } from "./FolderTree";
 import { Inspector } from "./Inspector";
 import { Progress, saveWorking, scanWorking, trashWorking, type Working } from "./Progress";
@@ -55,7 +56,7 @@ import { TrashDialog } from "./TrashDialog";
 import { Treemap } from "./Treemap";
 import * as fmt from "./format";
 
-type Dialog = "scan" | "snapshots" | "remote" | "save" | "about" | null;
+type Dialog = "scan" | "snapshots" | "history" | "remote" | "save" | "about" | null;
 
 export function App() {
   const d = useDict();
@@ -431,6 +432,14 @@ export function App() {
         <button onClick={() => setDialog("scan")}>{d.toolbar.scanFolder}</button>
         <button onClick={() => setDialog("snapshots")}>{d.toolbar.snapshots}</button>
         <button onClick={() => setDialog("remote")}>{d.toolbar.remoteAgent}</button>
+        {/* Offered only with a folder on screen, because this opens *that
+            folder's* history; with nothing open it would be the snapshot list
+            under a different name. */}
+        {opened && (
+          <button onClick={() => setDialog("history")} title={d.toolbar.historyTitle}>
+            {d.toolbar.history}
+          </button>
+        )}
         <div className="spacer" />
         {opened?.source.kind === "live" && (
           <button
@@ -617,6 +626,26 @@ export function App() {
       {dialog === "snapshots" && (
         <SnapshotDialog
           basis={basis}
+          onClose={() => setDialog(null)}
+          onOpened={receive}
+          onHistory={() => setDialog("history")}
+          onDiff={(view) => {
+            setDialog(null);
+            setDiff(view);
+          }}
+        />
+      )}
+      {dialog === "history" && (
+        <HistoryDialog
+          basis={basis}
+          focus={
+            opened
+              ? {
+                  root: opened.source.root,
+                  host: opened.source.kind === "snapshot" ? opened.source.host : undefined,
+                }
+              : undefined
+          }
           onClose={() => setDialog(null)}
           onOpened={receive}
           onDiff={(view) => {

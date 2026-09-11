@@ -70,6 +70,8 @@ export const de: Dictionary = {
     resetZoomTitle: "Zurück an den Anfang dieses Scans",
     about: "Über",
     aboutTitle: "Version, Lizenzen und was sich geändert hat",
+    history: "Verlauf",
+    historyTitle: "Wie dieser Ordner gewachsen ist, über alle gespeicherten Snapshots",
   },
 
   capacity: {
@@ -293,6 +295,26 @@ export const de: Dictionary = {
     tokenPlaceholder: "aus /etc/spacetrace/token",
     list: "Snapshots auflisten",
     note: "Der Snapshot wird heruntergeladen und genau wie ein lokaler geöffnet. Der Agent liest seinen Rechner immer nur, von hier aus kann ihn also nichts verändern.",
+  },
+
+  history: {
+    title: "Verlauf eines Ordners",
+    targetLabel: "Ordner",
+    targetOption: "{host} · {root} · {count} Snapshots",
+    chartLabel: "Größe von {root} über {count} Snapshots",
+    chartHint:
+      "Die Achse beginnt bei null, die Höhe der Linie ist also die Größe selbst. Klicken Sie auf einen Punkt, um ihn auszuwählen; zwei ausgewählte Punkte lassen sich vergleichen.",
+    noHistoryHere:
+      "Für den angezeigten Ordner ist noch nichts gespeichert. Stattdessen wird der Verlauf eines anderen Ordners gezeigt.",
+    needTwo: "Bisher nur ein Snapshot. Ein Verlauf braucht einen zweiten zum Vergleichen.",
+    columnPeriod: "Zwischen",
+    columnElapsed: "Vergangen",
+    columnChange: "Änderung in {measure}",
+    columnAfter: "Danach",
+    days: "{days} T",
+    unchanged: "unverändert",
+    stepTitle: "Diese beiden Snapshots vergleichen und sehen, welche Ordner dafür verantwortlich sind",
+    openPoint: "Snapshot öffnen",
   },
 
   diff: {

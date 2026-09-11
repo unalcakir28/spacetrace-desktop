@@ -70,6 +70,8 @@ export const fr: Dictionary = {
     resetZoomTitle: "Revenir au sommet de cette analyse",
     about: "À propos",
     aboutTitle: "Version, licences et nouveautés",
+    history: "Historique",
+    historyTitle: "L'évolution de ce dossier sur tous les instantanés enregistrés",
   },
 
   capacity: {
@@ -292,6 +294,26 @@ export const fr: Dictionary = {
     tokenPlaceholder: "depuis /etc/spacetrace/token",
     list: "Lister les instantanés",
     note: "L'instantané est téléchargé et ouvert exactement comme un instantané local. L'agent ne fait jamais que lire sa machine, rien ici ne peut donc la modifier.",
+  },
+
+  history: {
+    title: "Historique d'un dossier",
+    targetLabel: "Dossier",
+    targetOption: "{host} · {root} · {count} instantanés",
+    chartLabel: "Taille de {root} sur {count} instantanés",
+    chartHint:
+      "L'axe part de zéro : la hauteur de la ligne est donc la taille elle-même. Cliquez sur un point pour le sélectionner ; deux points sélectionnés peuvent être comparés.",
+    noHistoryHere:
+      "Rien d'enregistré pour le dossier affiché. L'historique d'un autre dossier est montré à la place.",
+    needTwo: "Un seul instantané pour l'instant. Un historique en demande un second pour comparer.",
+    columnPeriod: "Entre",
+    columnElapsed: "Écoulé",
+    columnChange: "Variation en {measure}",
+    columnAfter: "Après",
+    days: "{days} j",
+    unchanged: "inchangé",
+    stepTitle: "Comparer ces deux instantanés et voir quels dossiers en sont responsables",
+    openPoint: "Ouvrir l'instantané",
   },
 
   diff: {

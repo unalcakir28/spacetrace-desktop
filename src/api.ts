@@ -201,6 +201,26 @@ export interface TileArrays {
   count: number;
 }
 
+/** One measurement in a target's history. */
+export interface HistoryPoint {
+  scanId: number;
+  /** Unix seconds. */
+  at: number;
+  size: number;
+  alloc: number;
+  files: number;
+  label: string | null;
+  fsTotal: number | null;
+  fsAvailable: number | null;
+}
+
+/** Every snapshot of one (host, root) pair, oldest first. */
+export interface HistoryTarget {
+  host: string;
+  root: string;
+  points: HistoryPoint[];
+}
+
 export interface Change {
   path: string;
   kind: "grown" | "shrunk" | "added" | "removed";
@@ -289,6 +309,10 @@ export const api = {
 
   listSnapshots(db: string): Promise<ScanMeta[]> {
     return call("list_snapshots", { db });
+  },
+
+  snapshotHistory(db: string): Promise<HistoryTarget[]> {
+    return call("snapshot_history", { db });
   },
 
   openSnapshot(db: string, scanId: number, basis: SizeBasis): Promise<Opened> {

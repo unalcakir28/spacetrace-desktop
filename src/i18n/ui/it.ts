@@ -73,6 +73,8 @@ export const it: Dictionary = {
     resetZoomTitle: "Torna alla radice di questa scansione",
     about: "Informazioni",
     aboutTitle: "Versione, licenze e cosa è cambiato",
+    history: "Cronologia",
+    historyTitle: "Come è cresciuta questa cartella, in tutti gli snapshot archiviati",
   },
 
   capacity: {
@@ -290,6 +292,26 @@ export const it: Dictionary = {
     tokenPlaceholder: "da /etc/spacetrace/token",
     list: "Elenca snapshot",
     note: "Lo snapshot viene scaricato e aperto esattamente come uno locale. L'agente si limita sempre a leggere la propria macchina, quindi nulla di quanto avviene qui può modificarla.",
+  },
+
+  history: {
+    title: "Cronologia di una cartella",
+    targetLabel: "Cartella",
+    targetOption: "{host} · {root} · {count} snapshot",
+    chartLabel: "Dimensione di {root} attraverso {count} snapshot",
+    chartHint:
+      "L'asse parte da zero, quindi l'altezza della linea è la dimensione stessa. Fai clic su un punto per selezionarlo; due punti selezionati possono essere confrontati.",
+    noHistoryHere:
+      "Nulla di archiviato per la cartella a schermo. Viene mostrata invece la cronologia di un'altra cartella.",
+    needTwo: "Per ora un solo snapshot. Una cronologia ne richiede un secondo con cui confrontarsi.",
+    columnPeriod: "Tra",
+    columnElapsed: "Trascorso",
+    columnChange: "Variazione in {measure}",
+    columnAfter: "Dopo",
+    days: "{days} g",
+    unchanged: "nessuna variazione",
+    stepTitle: "Confronta questi due snapshot e vedi quali cartelle ne sono responsabili",
+    openPoint: "Apri snapshot",
   },
 
   diff: {

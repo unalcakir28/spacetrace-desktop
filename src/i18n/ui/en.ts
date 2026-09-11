@@ -81,6 +81,8 @@ export const en = {
     resetZoomTitle: "Back to the top of this scan",
     about: "About",
     aboutTitle: "Version, licences and what changed",
+    history: "History",
+    historyTitle: "How this folder has grown, across every stored snapshot",
   },
 
   capacity: {
@@ -303,6 +305,26 @@ export const en = {
     tokenPlaceholder: "from /etc/spacetrace/token",
     list: "List snapshots",
     note: "The snapshot is downloaded and opened exactly like a local one. The agent only ever reads its machine, so nothing here can change it.",
+  },
+
+  history: {
+    title: "History of a folder",
+    targetLabel: "Folder",
+    targetOption: "{host} · {root} · {count} snapshots",
+    chartLabel: "Size of {root} across {count} snapshots",
+    chartHint:
+      "The axis starts at zero, so the height of the line is the size itself. Click a point to pick it; two picked points can be compared.",
+    noHistoryHere:
+      "Nothing stored for the folder on screen yet. Another folder's history is shown instead.",
+    needTwo: "One snapshot so far. A history needs a second one to compare against.",
+    columnPeriod: "Between",
+    columnElapsed: "Elapsed",
+    columnChange: "Change in {measure}",
+    columnAfter: "After",
+    days: "{days} d",
+    unchanged: "no change",
+    stepTitle: "Compare these two snapshots and see which folders account for it",
+    openPoint: "Open snapshot",
   },
 
   diff: {

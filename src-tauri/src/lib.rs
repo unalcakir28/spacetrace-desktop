@@ -44,6 +44,7 @@ use tauri::Emitter;
 
 mod error;
 mod hints;
+mod history;
 mod remote;
 
 /// Where the tree currently on screen came from. Shown in the UI, and it also
@@ -863,6 +864,27 @@ async fn list_snapshots(db: String) -> Result<Vec<ScanMeta>, AppError> {
                 .with("db", &db)
                 .detail(format!("{e:#}"))
         })
+    })
+    .await
+}
+
+/// Every stored snapshot, grouped into the targets they are a history of.
+///
+/// Deliberately the same read as `list_snapshots` rather than a narrower query
+/// per target: the window offers to switch between targets, and a second round
+/// trip per switch would buy nothing on a table this size while making the
+/// list and the chart able to disagree about what is stored.
+#[tauri::command]
+async fn snapshot_history(db: String) -> Result<Vec<history::Target>, AppError> {
+    blocking(move || {
+        Store::open(&db)
+            .and_then(|s| s.list())
+            .map(history::targets)
+            .map_err(|e| {
+                AppError::new("cannot_read_database")
+                    .with("db", &db)
+                    .detail(format!("{e:#}"))
+            })
     })
     .await
 }
@@ -1972,6 +1994,7 @@ pub fn run() {
             starting_points,
             save_snapshot,
             list_snapshots,
+            snapshot_history,
             open_snapshot,
             treemap,
             labels,

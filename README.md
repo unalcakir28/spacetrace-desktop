@@ -49,10 +49,12 @@ Phase 3 of the roadmap. Working:
 - Store the open scan as a snapshot, and open stored ones from the same
   database the CLI writes
 - Compare two snapshots and see which folder actually grew
+- A folder's whole history as one line, with the change between every pair of
+  snapshots beside it and a click from any step to the comparison for it
 - Read snapshots straight off a remote agent over HTTP
 
-Not done yet: the Windows MFT fast path, the macOS Full Disk Access onboarding
-screen, and a timeline view of a target's whole history.
+Not done yet: the Windows MFT fast path and the macOS Full Disk Access
+onboarding screen.
 
 ## Why the app is a thin shell
 
@@ -291,6 +293,7 @@ src/                    React frontend
 ├── TrashDialog.tsx     the one confirmation, for one entry or a hundred
 ├── Toasts.tsx          what just happened, said once
 ├── Dialogs.tsx         scan / snapshots / remote / diff
+├── Timeline.tsx        one folder's history: the line, and what each step cost
 ├── basis.ts            on disk vs logical: the one place the choice is defined
 ├── categories.ts       the one place category colours are read from
 ├── format.ts           byte, count and date formatting (matches the CLI)
@@ -298,6 +301,7 @@ src/                    React frontend
 
 src-tauri/
 ├── src/lib.rs          commands, view types, file-type categories
+├── src/history.rs      snapshots grouped into the targets they are a history of
 ├── src/hints.rs        entry counts from the last scan, for the progress bar
 └── src/remote.rs       downloading a snapshot from an agent
 ```

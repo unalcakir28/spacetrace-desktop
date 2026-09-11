@@ -1690,3 +1690,61 @@ th.right {
 .update-bar .fail {
   color: var(--alarm);
 }
+
+/* ---------------------------------------------------------------- timeline */
+
+/* One target's history. Drawn in SVG rather than on the canvas the treemap
+   uses: this is a dozen points, not a million, and SVG gives hit-testing,
+   native tooltips and crisp text for free. */
+
+.timeline {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 4px 0 2px;
+}
+
+.timeline .grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.timeline .axis {
+  fill: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* The interface accent, not a category hue: this line is not a file type.
+   Same reasoning as the treemap selection outline. */
+.timeline .line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.timeline .point {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.timeline .point:hover {
+  fill: var(--accent-deep);
+}
+
+.timeline .point.picked {
+  fill: var(--accent-bright);
+  stroke: var(--text);
+}
+
+/* Keyboard focus on a point. `outline` does not follow an SVG circle's shape
+   in WebKit, so the ring is drawn as a second stroke instead. */
+.timeline .point:focus-visible {
+  outline: none;
+  stroke: var(--text);
+  stroke-width: 3;
+}

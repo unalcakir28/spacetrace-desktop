@@ -69,6 +69,8 @@ export const tr: Dictionary = {
     resetZoomTitle: "Bu taramanın en üstüne dön",
     about: "Hakkında",
     aboutTitle: "Sürüm, lisanslar ve neyin değiştiği",
+    history: "Geçmiş",
+    historyTitle: "Bu klasörün saklanan tüm anlık görüntülerdeki büyümesi",
   },
 
   capacity: {
@@ -285,6 +287,26 @@ export const tr: Dictionary = {
     tokenPlaceholder: "/etc/spacetrace/token dosyasından",
     list: "Anlık görüntüleri listele",
     note: "Anlık görüntü indirilir ve tıpkı yerel bir tanesi gibi açılır. Ajan kendi makinesini yalnızca okur, bu yüzden buradan hiçbir şey onu değiştiremez.",
+  },
+
+  history: {
+    title: "Bir klasörün geçmişi",
+    targetLabel: "Klasör",
+    targetOption: "{host} · {root} · {count} anlık görüntü",
+    chartLabel: "{root} boyutu, {count} anlık görüntü boyunca",
+    chartHint:
+      "Eksen sıfırdan başlıyor, yani çizginin yüksekliği boyutun kendisi. Bir noktaya tıklayarak seçin; seçilen iki nokta karşılaştırılabilir.",
+    noHistoryHere:
+      "Ekrandaki klasör için henüz kayıt yok. Onun yerine başka bir klasörün geçmişi gösteriliyor.",
+    needTwo: "Şimdilik tek anlık görüntü var. Geçmiş için karşılaştırılacak bir ikincisi gerekiyor.",
+    columnPeriod: "Arası",
+    columnElapsed: "Geçen süre",
+    columnChange: "{measure} değişimi",
+    columnAfter: "Sonrasında",
+    days: "{days} g",
+    unchanged: "değişmedi",
+    stepTitle: "Bu iki anlık görüntüyü karşılaştır ve bunu hangi klasörlerin yaptığını gör",
+    openPoint: "Anlık görüntüyü aç",
   },
 
   diff: {

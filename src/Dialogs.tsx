@@ -16,7 +16,12 @@ import { basisLabel } from "./basis";
 import * as fmt from "./format";
 import { fill, useDict } from "./i18n";
 
-function Scrim({ children, onClose }: { children: React.ReactNode; onClose(): void }) {
+/**
+ * Shared with `Timeline.tsx`: a dialog closes on Escape and on the backdrop in
+ * this app, and a second copy of that rule would be a second place to forget
+ * it.
+ */
+export function Scrim({ children, onClose }: { children: React.ReactNode; onClose(): void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -230,12 +235,15 @@ export function SnapshotDialog({
   onClose,
   onOpened,
   onDiff,
+  onHistory,
 }: {
   /** The measure the window is reading by, so the snapshot opens the same way. */
   basis: SizeBasis;
   onClose(): void;
   onOpened(result: Opened): void;
   onDiff(view: DiffView): void;
+  /** Hands off to the timeline, which groups these same rows by folder. */
+  onHistory(): void;
 }) {
   const d = useDict();
   const [db, setDb] = useState("");
@@ -336,6 +344,12 @@ export function SnapshotDialog({
               : fill(d.snapshots.selectedForComparison, { count: picked.length })}
           </span>
           <button onClick={onClose}>{d.common.close}</button>
+          {/* A flat list of every scan on every machine stops being readable
+              at a few hundred rows; the timeline is the same rows grouped by
+              the folder they are a history of. */}
+          <button onClick={onHistory} disabled={scans.length === 0}>
+            {d.toolbar.history}
+          </button>
           <button className="primary" onClick={compare} disabled={picked.length !== 2 || busy}>
             {d.snapshots.compare}
           </button>
