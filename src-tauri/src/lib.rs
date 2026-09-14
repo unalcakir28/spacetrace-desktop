@@ -638,7 +638,7 @@ async fn scan_directory(
     if !path.is_dir() {
         return Err(AppError::new("not_a_directory").with("path", path.display()));
     }
-    let options = ScanOptions {
+    let mut options = ScanOptions {
         exclude_names: req.exclude.clone(),
         one_filesystem: req.one_file_system,
         max_depth: req.depth,
@@ -659,11 +659,21 @@ async fn scan_directory(
         // decide what to do with far better information than a number chosen
         // in advance would give them.
         mount_timeout: Some(spacetrace_scan_core::MOUNT_TIMEOUT),
+        // Filled in below, from the same figure the progress bar uses.
+        expected_entries: None,
     };
 
     let progress = Arc::new(ScanProgress::default());
     let scan_id = state.begin_scan(Arc::clone(&progress))?;
     let expected = hints::expected_entries(&path, &options);
+    // The same number, doing a second job. The scanner fills its arena during
+    // the walk now, so without a size to start from the `Vec` doubles its way
+    // up and holds two buffers at once during the last move. "Rescan" is
+    // exactly where that costs something — the same folder, in the same
+    // process, over and over — and it is also exactly where this hint exists.
+    // Note the hint is not part of the key `hints` files these under, so
+    // setting it here cannot make the next lookup miss.
+    options.expected_entries = expected.and_then(|n| usize::try_from(n).ok());
     let ticker = Ticker::start(app.clone(), scan_id, Arc::clone(&progress), expected);
 
     let walk_path = path.clone();
