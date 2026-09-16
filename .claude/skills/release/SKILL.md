@@ -1,10 +1,14 @@
 ---
 name: release
-description: Cut a stable spacetrace-desktop release end to end — version in three files, tag, then verify the published installers rather than trusting CI. Use when the user asks to publish, cut, ship or tag a desktop version, including Turkish phrasings like "masaüstü sürümü yayınla", "desktop sürüm kes", "0.8.0 yayınla", or asks whether a desktop version has been released yet.
-disable-model-invocation: true
+description: Cuts a stable spacetrace-desktop release end to end — version in three files, changelog, tag, then verifying the published installers rather than trusting CI. Use when a desktop release is being cut or asked about, including Turkish phrasings like "masaüstü sürümü yayınla", "desktop sürüm kes", "0.8.0 yayınla", and when someone asks whether a desktop version has shipped yet or what is waiting to be released.
 ---
 
 # Release — spacetrace-desktop
+
+> **This skill can fire on its own.** Run the reading and verification steps
+> without asking; but **commit, tag and push cannot be undone** — say what you
+> are about to do and get approval before those three. Without approval the
+> release is not cut, it is prepared.
 
 Full prose in [RELEASING.md](../../../RELEASING.md). This is the order of
 operations plus the things that have actually gone wrong.
