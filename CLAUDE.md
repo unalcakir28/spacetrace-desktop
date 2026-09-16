@@ -257,9 +257,25 @@ Tam sıra [RELEASING.md](RELEASING.md); elle bozulması kolay kısımlar:
   güncelledikten hemen sonra, muhtemelen çevrimdışı. `unreleased` gösterilmiyor
   — kimsenin elinde olmayan kodu duyurmak olurdu.
 - `tasks/` gitignore'da; yol haritası çekirdek depoda.
-- **Bu depoda `.claude/` yok.** Çekirdek deponun ajanları, hook'ları ve
-  becerileri (changelog, release, preflight) burada geçerli değil — changelog
-  girdisi yazmak ya da sürüm kesmek çekirdek checkout'undan sürülüyor.
+- **Çekirdek deponun `.claude/` araçları burada geçerli değil.** Changelog
+  girdisi yazmak hâlâ çekirdek checkout'undan sürülüyor: kaynak
+  `crates/changelog/changelog.json` orada.
+
+## Depoda duran Claude araçları
+
+| Araç | Ne zaman |
+|------|----------|
+| `preflight` (beceri) | Push öncesi; CI iki paralel job'a bölündüğü için elle sırayla koşmak kolay unutuluyor |
+| `release` (beceri) | Sürüm kesme; üç dosyada sürüm, ve yayınlananı doğrulama adımları |
+| `dist-before-cargo` (hook) | `dist/` yokken derleyen bir cargo komutunu durduruyor |
+
+İkisi de `disable-model-invocation`: kullanıcı `/preflight`, `/release` yazar.
+
+Paylaşılan araçlar `spacetrace-tools` plugin'inden geliyor ve `spacetrace-tools:`
+ile adlandırılıyor: `core-pin-guard` (pin ilerletmeden önce çekirdek API
+diff'i), `doc-drift-auditor`, `code-reviewer`, `test-writer`, ve üretilen
+`CHANGELOG.md`'yi koruyan hook. Plugin **depoda değil**, ana dizindeki
+`spacetrace-tooling/` içinde — klonla gelmiyor.
 
 ## Testler
 
