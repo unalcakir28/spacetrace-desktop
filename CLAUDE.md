@@ -274,8 +274,9 @@ Tam sıra [RELEASING.md](RELEASING.md); elle bozulması kolay kısımlar:
 Paylaşılan araçlar `spacetrace-tools` plugin'inden geliyor ve `spacetrace-tools:`
 ile adlandırılıyor: `core-pin-guard` (pin ilerletmeden önce çekirdek API
 diff'i), `doc-drift-auditor`, `code-reviewer`, `test-writer`, ve üretilen
-`CHANGELOG.md`'yi koruyan hook. Plugin **depoda değil**, ana dizindeki
-`spacetrace-tooling/` içinde — klonla gelmiyor.
+`CHANGELOG.md`'yi koruyan hook. Plugin **bu depoda değil**, yanındaki
+`spacetrace-tooling/` private deposunda — bu depoyu klonlamak onu getirmiyor,
+ayrıca kurulması gerekiyor.
 
 ## Testler
 
