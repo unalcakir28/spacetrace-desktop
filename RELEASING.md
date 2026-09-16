@@ -48,10 +48,59 @@ uyarı basar. Yani bağlantılar public olmaz, başka bir şey bozulmaz.
 
 ## İmzalama
 
-Hiçbir paket imzalı değil. macOS ve Windows ilk açılışta uyarı veriyor; indirme
-sayfası ne yapılacağını yazıyor ve her dosyanın yanında `SHA256SUMS` var.
-İmzalama yıllık ücretli sertifika gerektiriyor ve sertifika bir depoda
-duramıyor — bilinçli bir eksik, gizlenen bir şey değil.
+**Güvenilir geliştirici sertifikası yok.** macOS ve Windows ilk açılışta uyarı
+veriyor; indirme sayfası ne yapılacağını yazıyor ve her dosyanın yanında
+`SHA256SUMS` var. Ücretli sertifika yıllık ve bir depoda duramıyor — bilinçli
+bir eksik, gizlenen bir şey değil.
+
+**Ama macOS paketi kendinden imzalı sertifikayla imzalanıyor, ve Gatekeeper
+için değil — TCC için.** macOS Tam Disk Erişimi'ni designated requirement'a
+bağlıyor; ad-hoc imzada öyle bir şey olmadığı için cdhash'e düşüyor ve cdhash
+her derlemede değişiyor. Sonuç: kullanıcı izni veriyor, bir sonraki
+güncellemede macOS uygulamayı tanımıyor ve baştan soruyor (10 Eylül 2026'da
+kullanıcı bildirdi).
+
+İki sır gerekiyor:
+
+```
+APPLE_CERTIFICATE            # base64'lenmiş .p12
+APPLE_CERTIFICATE_PASSWORD   # .p12 parolası
+```
+
+**Sırlar yoksa iş akışı düşmüyor** — eskisi gibi ad-hoc imzalıyor ve izin
+sorularının geri geleceğini söyleyen bir uyarı basıyor.
+
+Bilinmesi gereken, hepsi acı çekilerek öğrenilmiş:
+
+- **Sertifika güvenilir kök olmak zorunda.** Tauri kimliği
+  `security find-identity -v` ile çözüyor ve o yalnızca *geçerli* kimlikleri
+  listeliyor; kendinden imzalı bir sertifika `trustRoot` yapılmadan geçerli
+  sayılmıyor. Runner'lar tek kullanımlık, o yüzden her derlemede yeniden
+  yapılıyor.
+- **Keychain açıkta kuruluyor**, Tauri'nin kendi `APPLE_CERTIFICATE`
+  yoluna bırakılmıyor: Tauri sertifikayı görmediğin geçici bir keychain'e
+  alıyor ve orada "failed to resolve signing identity" dediğinde elinde
+  hiçbir teşhis olmuyor. Derleme adımına `APPLE_CERTIFICATE` **verilmiyor**,
+  yoksa Tauri ikinci bir keychain daha kuruyor. `find-identity -v` çıktısı
+  bilerek log'a basılıyor.
+- `openssl pkcs12 -legacy` şart — OpenSSL 3'ün SHA-256 MAC'ini
+  `security import` okuyamıyor.
+- Keychain idle kilidi 21600 saniyeye çekiliyor; varsayılan beş dakika ve
+  derleme daha uzun sürüyor.
+- **Derleme sonrası bir adım paketin requirement'ını doğruluyor** ve
+  uyuşmazsa düşüyor. `leaf` değil **`root`** özeti bakılıyor. Sessizce
+  ad-hoc'a düşen bir derleme kusursuz kurulur, çalışır ve izin sorularını
+  geri getirir — fark edilmeyecek türden bir bozulma olduğu için
+  varsayılmıyor, ölçülüyor.
+- **`.dmg` bilerek imzasız yeniden üretiliyor.** Güvenilmeyen sertifikayla
+  imzalı bir dmg mount anında reddediliyor (v0.4.1, macOS 26.5.2'de
+  ölçüldü); `codesign --remove-signature` disk imajını kabul etmediği için
+  `hdiutil convert` ile baştan kuruluyor.
+
+> **Eksik:** `.p12`'nin nasıl üretildiği (ortak ad `spacetrace`, kendinden
+> imzalı, kod imzalama kullanımı) burada yazılı değil. Sertifikayı yenileyecek
+> olan, o adımları buraya yazsın — iş akışındaki uyarı metni "RELEASING.md'de
+> tek komut var" diyor ve şu an o komut burada yok.
 
 ## Kararlı sürüm kesmek
 

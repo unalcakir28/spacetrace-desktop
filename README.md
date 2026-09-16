@@ -20,9 +20,12 @@ a download page cannot supply one. Two channels: `desktop-v*` for a tagged
 release and `desktop-continuous` for the newest `main`. See
 [RELEASING.md](RELEASING.md).
 
-Nothing is code-signed, so macOS and Windows both warn on first launch; the
-download page says exactly what to click and publishes a checksum for every
-file.
+Nothing carries a trusted developer certificate, so macOS and Windows both warn
+on first launch; the download page says exactly what to click and publishes a
+checksum for every file. The macOS app *is* signed, with a self-signed
+certificate — not to satisfy Gatekeeper, which it cannot, but to keep the
+signature stable across releases so a granted Full Disk Access permission
+survives an update. [RELEASING.md](RELEASING.md) explains why.
 
 ## Status
 
