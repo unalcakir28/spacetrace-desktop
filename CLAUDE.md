@@ -1,305 +1,328 @@
-# spacetrace masaüstü — Claude için proje notları
+# spacetrace desktop — project notes for Claude
 
-Tauri v2 + React penceresi: tarayıcıyı çağırır, ağacı çizer, snapshot kaydeder.
-**Tarayıcı, ağaç modeli ve yerleşim burada değil** —
-[unalcakir28/spacetrace](https://github.com/unalcakir28/spacetrace) çekirdek
-deposunda, git bağımlılığı olarak alınıyor.
+Tauri v2 + React window: it invokes the scanner, draws the tree, saves
+snapshots. **The scanner, the tree model and the layout are not here** — they
+live in the [unalcakir28/spacetrace](https://github.com/unalcakir28/spacetrace)
+core repo, pulled in as a git dependency.
 
-Zaten iyi anlatılmış olanı tekrarlamıyorum: [README.md](README.md) ince kabuk
-gerekçesini, silme akışının üç inceliğini, ilerleme tahmininin dürüstlüğünü,
-`OnDisk`/`Logical` tablosunu, görsel dili ve açıklamalı dosya ağacını tutuyor;
-[RELEASING.md](RELEASING.md) kanal tablosunu, beş sabit indirme dosya adını ve
-updater anahtarı hikâyesini tutuyor. Yol haritası ve fazlar arası kararlar
-çekirdek deponun `TODO.md` ve `docs/DECISIONS.md` dosyalarında — commit
-mesajlarındaki `C3`, `B5`, `K10` gibi kodlar oraya işaret ediyor.
+I do not repeat what is already well covered: [README.md](README.md) holds the
+thin-shell rationale, the three subtleties of the delete flow, the honesty of
+the progress estimate, the `OnDisk`/`Logical` table, the visual language and
+the annotated file tree; [RELEASING.md](RELEASING.md) holds the channel table,
+the five fixed download file names and the updater key story. The roadmap and
+the cross-phase decisions are in the core repo's `TODO.md` and
+`docs/DECISIONS.md` — codes like `C3`, `B5`, `K10` in commit messages point
+there.
 
-Bu dosya yalnızca **ikisinde de yazmayan, sessizce bozulabilen** şeyleri
-anlatıyor.
+This file covers only the things that are **written in neither of them and can
+break silently**.
 
-## Komutlar
+## Commands
 
 ```bash
-yarn install --frozen-lockfile   # CI böyle kuruyor; yarn 1.x
-yarn tauri dev                   # tam uygulama, hot reload
-yarn dev                         # yalnızca Vite (port 5173, strictPort)
+yarn install --frozen-lockfile   # this is how CI installs; yarn 1.x
+yarn tauri dev                   # full app, hot reload
+yarn dev                         # Vite only (port 5173, strictPort)
 
-# CI'ın koştuğu her şey. İlk üçü lint job'ında, bu sırayla (ubuntu-24.04);
-# cargo test AYRI ve paralel bir job, yalnızca macos-latest'te.
-yarn check:plugins               # plugin sürüm uyumu — aşağı bak
+# Everything CI runs. The first three are in the lint job, in this order
+# (ubuntu-24.04); cargo test is a SEPARATE, parallel job, on macos-latest only.
+yarn check:plugins               # plugin version match — see below
 yarn typecheck                   # tsc --noEmit
 yarn build                       # tsc --noEmit && vite build
 cd src-tauri && cargo fmt --all --check
 cd src-tauri && cargo clippy --all-targets -- -D warnings
 cd src-tauri && cargo test
 
-yarn tauri build                 # paketle
+yarn tauri build                 # package
 ```
 
-Rust 1.85+ (`src-tauri/Cargo.toml`), Node 22 (CI'da sabit; `packageManager` ve
-`.nvmrc` **yok**, yarn yalnızca lockfile'dan anlaşılıyor). Tauri CLI ve API
-2.11.0.
+Rust 1.85+ (`src-tauri/Cargo.toml`), Node 22 (pinned in CI; there is **no**
+`packageManager` and **no** `.nvmrc`, yarn is only inferred from the lockfile).
+Tauri CLI and API 2.11.0.
 
-**`yarn build` her `cargo` komutundan önce şart, `cargo test` dâhil.**
-`generate_context!` paket yapılandırmasını derleme anında okuyor ve
-`frontendDist` (`../dist`) yokken genişlemeyi reddediyor; `dist/` gitignore'da.
-Temiz bir klonda doğrudan `cargo test` çalışmaz — hata da "frontend derlenmedi"
-demez.
+**`yarn build` is mandatory before every `cargo` command, `cargo test`
+included.** `generate_context!` reads the package configuration at compile time
+and refuses to expand when `frontendDist` (`../dist`) is missing; `dist/` is in
+gitignore. On a clean clone `cargo test` does not run directly — and the error
+does not say "the frontend was not built" either.
 
-Tasarımı uygulamayı açmadan görmek için `design-preview.html`
-(`?scene=welcome|scan|tree|trash`, varsayılan `tree`; `trash` şu an `tree`
-ile aynı çiziyor, hiçbir dal ona bakmıyor); Vite dev sunucusundan servis
-ediliyor.
+To see the design without launching the app there is `design-preview.html`
+(`?scene=welcome|scan|tree|trash`, default `tree`; `trash` currently draws the
+same as `tree`, no branch looks at it); it is served from the Vite dev server.
 
-**ESLint, Prettier, JS test koşucusu yok.** JS tarafında "lint" `tsc`'den
-ibaret. Bu bir eksiklik değil, bir sonucu var: aşağıdaki IPC yazım kuralı
-**Rust'tan**, TypeScript kaynağını metin olarak okuyarak zorlanıyor
-(`src-tauri/tests/wire_names.rs`). Frontend'e dair bir kural koyacaksan onu da
-oraya koy.
+**There is no ESLint, no Prettier, no JS test runner.** On the JS side "lint"
+is nothing but `tsc`. This is not a gap; it has a consequence: the IPC naming
+rule below is enforced **from Rust**, by reading the TypeScript source as text
+(`src-tauri/tests/wire_names.rs`). If you are going to add a rule about the
+frontend, put that there too.
 
-## Çekirdek bağımlılığı: pin yalnızca Cargo.lock'ta
+## Core dependency: the pin lives only in Cargo.lock
 
-`src-tauri/Cargo.toml` altı çekirdek crate'i **rev, branch ya da tag
-olmadan** git'ten alıyor (path değil — K2 gereği iki depo gerçekten bağımsız
-kalsın diye):
+`src-tauri/Cargo.toml` pulls six core crates from git **with no rev, branch or
+tag** (not path — per K2, so that the two repos genuinely stay independent):
 
 ```toml
 spacetrace-scan-core = { git = "https://github.com/unalcakir28/spacetrace" }
-# ve store, diff, treemap, changelog, buildinfo
+# and store, diff, treemap, changelog, buildinfo
 ```
 
-Yani **tek pin `src-tauri/Cargo.lock`**. Sonuçları:
+So **the only pin is `src-tauri/Cargo.lock`**. The consequences:
 
-- `cargo update` **uzak deponun `main`'ini** çözüyor — yanındaki
-  `../spacetrace` checkout'u bu işe hiç karışmıyor, yani riski yereldeki
-  commit'ler değil, push edilmiş olanlar yaratıyor. Pin ilerletmek bilinçli
-  bir iş; komutu çekirdek deponun `release` becerisinde yazılı
+- `cargo update` resolves **the remote repo's `main`** — the `../spacetrace`
+  checkout next to it plays no part at all, so the risk comes not from local
+  commits but from pushed ones. Moving the pin is a deliberate act; the command
+  is written down in the core repo's `release` skill
   (`cargo update -p spacetrace-scan-core -p spacetrace-store -p spacetrace-changelog`).
-  Commit çoğunlukla `Cargo.lock` + `CHANGELOG.md`, ama API değiştiyse
-  `lib.rs`'e de dokunuyor — üç pin commit'inin ikisi öyle.
-- Sürüm iş akışı bu yüzden `cargo fetch --locked` koşuyor: onsuz **tek bir
-  etiketin iki derlemesi farklı tarayıcı kodu taşıyabilir**
-  (`release.yml` içinde gerekçesi yazılı). `yarn tauri build`'e `--locked`
-  geçirilemiyor, çünkü yarn 1 `--`'den önceki her argümanı yutuyor.
-- Pin'i ilerletip `CHANGELOG.md`'yi üretmezsen `src-tauri/tests/changelog.rs`
-  kırılıyor. **Bu test aynı zamanda pin muhafızı** — kırıldığında "changelog
-  bayat" değil, "çekirdek ilerledi" diye oku.
-- Çekirdeğin genel API'sini bozan değişikliği bu deponun CI'ı görmüyor;
-  oradaki `downstream-api-guard` ajanı tam bunun için var.
+  The commit is usually `Cargo.lock` + `CHANGELOG.md`, but if the API changed
+  it touches `lib.rs` too — two of the three pin commits are like that.
+- The release workflow runs `cargo fetch --locked` for this reason: without it
+  **two builds of a single tag can carry different scanner code** (the
+  rationale is written inside `release.yml`). `--locked` cannot be passed to
+  `yarn tauri build`, because yarn 1 swallows every argument before `--`.
+- If you move the pin and do not regenerate `CHANGELOG.md`,
+  `src-tauri/tests/changelog.rs` breaks. **That test is also the pin guard** —
+  when it breaks, read it as "core moved forward", not "the changelog is
+  stale".
+- A change that breaks core's public API is invisible to this repo's CI; the
+  `downstream-api-guard` agent over there exists for exactly that.
 
-## Bozulmaması gereken şeyler
+## Things that must not break
 
-1. **Yazım yönü: cevaplar camelCase, istekler snake_case.** Cevaplar
-   `api.ts` içindeki `camelize()`'dan geçiyor, yani TS arayüzleri camelCase
-   olmak zorunda; istekleri serde okuyor, yani **Rust'ın snake_case adlarını**
-   taşıyorlar. **İki yön, iki ayrı hata, ve biri yayınlandı:**
+1. **Wire spelling: responses camelCase, requests snake_case.** Responses pass
+   through `camelize()` in `api.ts`, so TS interfaces have to be camelCase;
+   requests are read by serde, so they carry **Rust's snake_case names**. **Two
+   directions, two separate bugs, and one of them shipped:**
 
-   - *Cevap yönü* — bir TS arayüzünde snake_case alan bildirmek kusursuz tip
-     denetiminden geçiyor ve çalışma anında her nesneden `undefined` okuyor.
-     0.6.1'de böyle yayınlandı: yaş ısı haritasının anahtarı doğru bayt
-     rakamlarının yanında altı satır "undefined güne kadar" yazdı.
-   - *İstek yönü* — bir istek struct'ına `rename_all = "camelCase"` koymak çok
-     kelimeli her alanı sessizce **eksik** bırakıyor, ve eksik bir `Option`
-     hata değil `None`. `SunburstRequest`'in ilk hâli tam bunu yaptı; bu yön
-     yakalandı, yayınlanmadı.
+   - *Response direction* — declaring a snake_case field in a TS interface
+     passes type checking flawlessly and reads `undefined` off every object at
+     runtime. This is how 0.6.1 shipped: the age heatmap's legend printed six
+     rows of "undefined güne kadar" ("until undefined days") next to correct
+     byte figures.
+   - *Request direction* — putting `rename_all = "camelCase"` on a request
+     struct silently leaves every multi-word field **missing**, and a missing
+     `Option` is not an error but `None`. The first version of
+     `SunburstRequest` did exactly this; this direction was caught and never
+     shipped.
 
-   Muhafızı `src-tauri/tests/wire_names.rs`; **yalnızca `export interface`
-   blokları** denetleniyor ve testin bütün isabeti o sınırda: `camelize`
-   *cevabın* anahtarlarını yazıyor. `invoke`'a geçirilen nesne literalleri
-   (anahtarları Rust argüman adları) ve locale dosyalarındaki hata kodu
-   haritaları **doğru** snake_case, işaretlenmemeleri gerekiyor — testin ilk
-   hâli yedisini de işaretledi, bir muhafız böyle kapatılan bir şeye
-   dönüşüyor. "Hiçbir şeyle eşleşmedim" durumu `checked > 50` ile
-   yakalanıyor.
-2. **Hiçbir komut ana thread'i bloklamaz.** `async` olmayan bir
-   `#[tauri::command]` UI thread'inde koşuyor. Kural: dosya sistemi ve SQLite
-   için `async` + `spawn_blocking`; ödünç alınan `State` gerekiyorsa
-   `#[tauri::command(async)]` (34 komuttan 15'i). Senkron kalanlar iş
-   yapmayanlar: `cancel_scan`, `default_database`, `build_info`,
-   `full_disk_access`, `open_privacy_settings`, `changelog`. Yeni bir komut
-   dosya sistemine, veritabanına ya da ağa dokunuyorsa bu listeye girmez.
-3. **Düğüm id'leri arena indeksi, her çağrı `generation` taşımak zorunda.**
-   Bayat bir id değişmiş bir ağaçta **başka** bir girdiyi adresler.
-   `Tree::remove_subtree` kesmiyor, sıfırlıyor — id'ler yerinde düzenlemede
-   hayatta kalıyor, `Loaded.hidden` gideni tutuyor.
-4. **`AppState.current` bilinçli olarak `RwLock`, `Mutex` değil.** Snapshot
-   yazmak tüm ağacı yürüyor (saniyeler); mutex altında her okuma kuyruğa
-   girer ve pencere donar.
-5. **Plugin sürümleri major.minor uyuşmak zorunda** — Rust crate'i ile npm
-   paketi. Uyuşmazlığı **yalnızca `tauri build`** yakalıyor, yani CI yeşil
-   geçip sürüm üç platformda patlıyordu. `yarn check:plugins` bu yüzden var;
-   düzeltmesi `yarn add --exact @tauri-apps/plugin-<ad>@<rust major.minor.patch>`.
-6. **Updater plugin'i koşullu register ediliyor**
-   (`app.config().plugins.0.contains_key("updater")`). Düzenlilik değil: imza
-   anahtarı yoksa sürüm iş akışı `plugins.updater`'ı yapılandırmadan
-   **siliyor**, koşulsuz bir register o durumda pencere açılmadan panic
-   ediyor (`invalid type: null, expected struct Config`).
-7. **Yetkiler tek dosyada ve tam beş tane**
+   The guard is `src-tauri/tests/wire_names.rs`; **only `export interface`
+   blocks** are checked and the test's entire accuracy rests on that boundary:
+   `camelize` writes the keys of the *response*. The object literals passed to
+   `invoke` (whose keys are Rust argument names) and the error code maps in the
+   locale files are **correctly** snake_case and must not be flagged — the
+   first version of the test flagged all seven of them, and that is how a guard
+   turns into something that gets switched off. The "I matched nothing" case is
+   caught by `checked > 50`.
+2. **No command blocks the main thread.** A `#[tauri::command]` that is not
+   `async` runs on the UI thread. The rule: `async` + `spawn_blocking` for the
+   filesystem and SQLite; `#[tauri::command(async)]` when a borrowed `State` is
+   needed (15 of 34 commands). The ones that stay synchronous are the ones that
+   do no work: `cancel_scan`, `default_database`, `build_info`,
+   `full_disk_access`, `open_privacy_settings`, `changelog`. A new command that
+   touches the filesystem, the database or the network does not join that list.
+3. **Node ids are arena indices, every call has to carry a `generation`.** A
+   stale id addresses a **different** entry in a changed tree.
+   `Tree::remove_subtree` does not cut, it zeroes — ids survive an in-place
+   edit, and `Loaded.hidden` holds what went away.
+4. **`AppState.current` is deliberately an `RwLock`, not a `Mutex`.** Writing a
+   snapshot walks the whole tree (seconds); under a mutex every read queues up
+   and the window freezes.
+5. **Plugin versions have to match on major.minor** — the Rust crate and the
+   npm package. Only **`tauri build`** catches a mismatch, so CI went green and
+   the release blew up on three platforms. That is why `yarn check:plugins`
+   exists; the fix is
+   `yarn add --exact @tauri-apps/plugin-<name>@<rust major.minor.patch>`.
+6. **The updater plugin is registered conditionally**
+   (`app.config().plugins.0.contains_key("updater")`). Not tidiness: when there
+   is no signing key the release workflow **deletes** `plugins.updater` from
+   the configuration, and in that case an unconditional register panics before
+   the window opens (`invalid type: null, expected struct Config`).
+7. **The capabilities are in a single file and there are exactly five**
    (`src-tauri/capabilities/default.json`): `core:default`,
    `dialog:allow-open`, `opener:allow-open-url`, `updater:default`,
-   `process:allow-restart`. Daha geniş olan her şey, kodun istemediği hâlde
-   pencerenin kullanabileceği bir yetki demek. CSP de açıkça yazılı
-   (`tauri.conf.json`).
+   `process:allow-restart`. Anything broader means a capability the window can
+   use although the code never asked for it. The CSP is written out explicitly
+   too (`tauri.conf.json`).
 
-## Çizim: canvas, LOD sunucuda
+## Drawing: canvas, LOD on the server
 
-`Treemap`, `Sunburst` ve `LiveMap` canvas, DOM değil; DPR ölçeklemesi ve
-`requestAnimationFrame` elle. **Web worker yok.** Dördüncü görünüm
-`Timeline` bir istisna — SVG, çünkü tek bir çizgi ve canvas'ın kazandıracağı
-bir şey yok.
+`Treemap`, `Sunburst` and `LiveMap` are canvas, not DOM; DPR scaling and
+`requestAnimationFrame` are done by hand. **No web workers.** The fourth view,
+`Timeline`, is an exception — SVG, because it is a single line and canvas would
+win nothing.
 
-- **Ağaç hiç JS'e geçmiyor.** `treemap` (ve `rings`) çizim sırasında (ebeveyn
-  çocuktan önce) **paralel düz sayı dizileri** döndürüyor, alan başına bir
-  dizi — nesne dizisinin yaklaşık üçte biri kadar JSON, ve içinde hiç string
-  yok. **`live_tiles` bu kuralın dışında**: `LiveTile` kendi `name`'ini
-  taşıyor, çünkü canlı harita tarama sürerken adları zaten gösteriyor.
-  Etiketler treemap'te ayrı isteniyor ve yalnızca `56×15` pikselden **küçük
-  olmayan** döşemeler için (`>=`, yani tam 56×15 etiket alıyor).
-- **LOD sunucu tarafında**: `min_area` (varsayılan 6.0, en az 0.5), `padding`,
-  isteğe bağlı `max_depth`.
-- `age_band` `Option<u8>` değil, `-1` nöbetçili `i8` — option dizisi JS'e
-  `(number|null)[]` olarak iniyor ve canvas döngüsüne döşeme başına bir dal
-  koyuyordu.
-- **Hit-test JS'te kalıyor** (diziler zaten yerel; her `mousemove` için IPC
-  turu hiçbir şey kazandırmıyor). Yüklü döşemeler `(root, generation)` ile
-  etiketli ve **okuma anında** doğrulanıyor, değişimde temizlenmiyor — yani
-  bayat bir döşemenin tıklanabilir olduğu bir aralık yok.
-- `basis` (`OnDisk`/`Logical`) uygulama durumu değil, **yerleşim isteğinin
-  içinde** gidiyor: uçuşta olan bir yerleşim asla öteki ölçünün rakamlarıyla
-  eşlenemiyor.
-- Yeniden boyutlandırma `RESIZE_SETTLE = 110` ms sonra yerleşimi kuruyor —
-  `Treemap` ve `Sunburst`'te; `LiveMap`'in çıplak bir `ResizeObserver`'ı var,
-  debounce yok. Canvas boyutlarının yalnızca gerçekten değiştiyse atanması da
-  (atama canvas'ı temizliyor) yalnızca `Treemap`'te korumalı. **İkisi de
-  eksiklik, kural değil** — yeni bir görünüm yazarken `Treemap`'i örnek al,
-  diğer ikisini değil.
+- **The tree never crosses into JS.** `treemap` (and `rings`) return
+  **parallel flat number arrays** in draw order (parent before child), one
+  array per field — about a third as much JSON as an array of objects, and with
+  no strings in it. **`live_tiles` is outside this rule**: `LiveTile` carries
+  its own `name`, because the live map is already showing names while the scan
+  runs. Labels are requested separately in the treemap, and only for tiles that
+  are **not smaller** than `56×15` pixels (`>=`, so exactly 56×15 does get a
+  label).
+- **LOD is on the server side**: `min_area` (default 6.0, at least 0.5),
+  `padding`, optional `max_depth`.
+- `age_band` is not an `Option<u8>` but an `i8` with a `-1` sentinel — an array
+  of options came down to JS as `(number|null)[]` and put a branch per tile in
+  the canvas loop.
+- **Hit-testing stays in JS** (the arrays are already local; an IPC round trip
+  per `mousemove` wins nothing). Loaded tiles are tagged with
+  `(root, generation)` and validated **at read time**, not cleared on change —
+  so there is no window in which a stale tile is clickable.
+- `basis` (`OnDisk`/`Logical`) is not app state, it travels **inside the layout
+  request**: a layout in flight can never be paired with the other measure's
+  figures.
+- Resizing sets up the layout after `RESIZE_SETTLE = 110` ms — in `Treemap` and
+  `Sunburst`; `LiveMap` has a bare `ResizeObserver`, no debounce. Assigning the
+  canvas dimensions only when they actually changed (the assignment clears the
+  canvas) is likewise guarded only in `Treemap`. **Both are gaps, not rules** —
+  when you write a new view, take `Treemap` as the model, not the other two.
 
 ## Platform
 
-- **macOS Full Disk Access sondası**: `…/com.apple.TCC/TCC.db`'yi açmayı
-  deniyor, içinden hiçbir şey okumuyor. `PermissionDenied` → false, **başka
-  her hata → true** (tahmin üzerine dırdır etmemek için). Windows/Linux'ta
-  `None`. `open_privacy_settings` ayarları açıp bilerek orada duruyor.
-- `Info.plist` içindeki altı `NS*UsageDescription` **bilerek İngilizce**:
-  yerelleştirmek `.lproj` altında `InfoPlist.strings` gerektiriyor, paketleyici
-  onları toplamıyor. Çevrilmiş açıklama uygulamanın kendi onboarding
-  panelinde, ve OS sormadan **önce** gösteriliyor.
-- `reveal_path` üç ayrı yol; Linux'ta taşınabilir bir "bu dosyayı seç" yok,
-  ebeveyn dizini `xdg-open` ile açılıyor.
-- Linux derleme önkoşulları ve **ubuntu-24.04 runner'ı glibc tabanı için**
-  seçildi — deb, rpm ve AppImage üçü de oradan çıkıyor.
+- **macOS Full Disk Access probe**: it tries to open `…/com.apple.TCC/TCC.db`
+  and reads nothing out of it. `PermissionDenied` → false, **any other error →
+  true** (so as not to nag on a guess). `None` on Windows/Linux.
+  `open_privacy_settings` opens the settings and deliberately stops there.
+- The six `NS*UsageDescription` entries in `Info.plist` are **deliberately in
+  English**: localizing them requires `InfoPlist.strings` under `.lproj`, and
+  the bundler does not collect those. The translated explanation is in the
+  app's own onboarding panel, and it is shown **before** the OS asks.
+- `reveal_path` has three separate paths; on Linux there is no portable "select
+  this file", so the parent directory is opened with `xdg-open`.
+- The Linux build prerequisites and the **ubuntu-24.04 runner were chosen for
+  the glibc baseline** — deb, rpm and AppImage all come out of there.
 
 ## i18n
 
-Beş dil (`en tr it fr de`), kaynak `src/i18n/ui/en.ts` — 449 satırlık
-`Dictionary` tipi, diğer dördü ona uyuyor. Locale çözümü: `localStorage`
-(`spacetrace.locale`) → `navigator.languages` → `en`. Modül seviyesinde
-store + `useSyncExternalStore`; Redux/zustand/context yok, gerçek durum
-Rust'ta.
+Five languages (`en tr it fr de`), the source is `src/i18n/ui/en.ts` — a
+449-line `Dictionary` type that the other four conform to. Locale resolution:
+`localStorage` (`spacetrace.locale`) → `navigator.languages` → `en`. A
+module-level store plus `useSyncExternalStore`; no Redux/zustand/context, the
+real state is in Rust.
 
-**Backend cümle döndürmez, kod döndürür** (`src-tauri/src/error.rs`) —
-kelimelerin sahibi pencere. Locale dosyalarındaki hata kodu haritalarının
-snake_case olması bu yüzden bilinçli.
+**The backend does not return sentences, it returns codes**
+(`src-tauri/src/error.rs`) — the window owns the words. That is why the error
+code maps in the locale files are deliberately snake_case.
 
-Stil: elle yazılmış tek `src/theme.css` (1863 satır CSS değişkeni). Tailwind,
-CSS-in-JS, CSS modules yok. Dosyanın başındaki kural: renk veridir, dokuz
-kategori dokuz ton, seçim ve hover ton harcamaz.
+Style: a single hand-written `src/theme.css` (1863 lines of CSS variables). No
+Tailwind, no CSS-in-JS, no CSS modules. The rule at the top of the file: color
+is data, nine categories nine shades, selection and hover do not spend a shade.
 
-## Sürüm
+## Release
 
-Tam sıra [RELEASING.md](RELEASING.md); elle bozulması kolay kısımlar:
+The full sequence is in [RELEASING.md](RELEASING.md); the parts that are easy
+to break by hand:
 
-- **Sürüm numarası üç dosyada**: `package.json`, `src-tauri/Cargo.toml`,
-  `src-tauri/tauri.conf.json`. `meta` job uyuşmazlıkta sert düşüyor —
-  yarım kalmış bir bump bir kez 0.1.0 ikilisinin etrafına v0.2.0 kurucusu
-  paketledi.
-- **macOS `.app` self-signed, ve Gatekeeper için değil — TCC için.** macOS
-  Full Disk Access'i designated requirement'a bağlıyor; ad-hoc imza cdhash'e
-  düşüyor, yani her sürüm yeni bir uygulama gibi görünüp verilmiş izin
-  sessizce geçersiz oluyordu (10 Eylül 2026 kullanıcı raporu). Keychain
-  Tauri'nin `APPLE_CERTIFICATE` yolundan değil, açıkça kuruluyor;
-  `openssl pkcs12 -legacy` şart (OpenSSL 3'ün SHA-256 MAC'ini `security
-  import` okuyamıyor); sertifika **güvenilir kök** olmak zorunda, yoksa
-  `find-identity -v` listelemiyor. Derleme sonrası bir adım
-  `certificate root` özetini doğrulayıp uyuşmazsa düşüyor — `leaf` değil
-  **`root`**, ve bu ayrım taşıyıcı.
-- **`.dmg` bilerek imzasız yeniden üretiliyor.** Güvenilmeyen sertifikayla
-  imzalı bir dmg **mount anında** reddediliyor (v0.4.1 regresyonu, macOS
-  26.5.2'de ölçüldü); `codesign --remove-signature` disk imajını kabul
-  etmiyor, o yüzden `hdiutil convert` ile baştan kuruluyor.
-- **`--bundles` `bundle.targets`'ı ezer, eklemez** — v0.3.0'ın macOS updater
-  paketi ve dolayısıyla manifesti bu yüzden çıkmadı. macOS matris girdisi
-  `app,dmg` yazmak zorunda.
-- **Kararlı sürümlerde `--latest=false`.** İndirme deposu üç bileşeni birden
-  tutuyor; `gh release create` yoksa GitHub'ın "latest" yerini bir masaüstü
-  etiketine veriyor ve `spacetrace update` onu hiç sürüm değilmiş gibi
-  ayrıştırıyor (9 Eylül 2026'da hub-v0.3.0 yeri aldı).
-- Varlıklar `bundles/` altında toplanıyor, **`dist/` değil** (o Vite'ın
-  çıktısı). Beş kurucu dosya adı başka bir depodaki indirme sayfasıyla
-  sözleşme; deb ve rpm'in updater yolu **bilerek** yok.
-- `paths-ignore` README/RELEASING/tasks/design-preview'ı dışlıyor ama
-  **`CHANGELOG.md`'yi bilerek dışlamıyor** — changelog ikiliye derleniyor.
-- İkililer çekirdek depoya yayınlanıyor (`RELEASE_TOKEN`); sır yoksa iş akışı
-  düşmüyor, bu özel depoya yayınlayıp uyarı basıyor. Etiketler:
-  `desktop-continuous`, `desktop-v*`, ve yalnızca `latest.json` tutan
-  `desktop-latest`.
+- **The version number is in three files**: `package.json`,
+  `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`. The `meta` job fails
+  hard on a mismatch — a half-finished bump once packaged a v0.2.0 installer
+  around a 0.1.0 binary.
+- **The macOS `.app` is self-signed, and not for Gatekeeper — for TCC.** macOS
+  binds Full Disk Access to the designated requirement; an ad-hoc signature
+  falls back to the cdhash, so every release looked like a new app and the
+  permission that had been granted silently became invalid (user report,
+  10 September 2026). The keychain is set up explicitly, not through Tauri's
+  `APPLE_CERTIFICATE` path; `openssl pkcs12 -legacy` is mandatory (`security
+  import` cannot read OpenSSL 3's SHA-256 MAC); the certificate has to be a
+  **trusted root**, otherwise `find-identity -v` does not list it. A post-build
+  step verifies the `certificate root` digest and fails on a mismatch —
+  **`root`**, not `leaf`, and that distinction is load-bearing.
+- **The `.dmg` is deliberately rebuilt unsigned.** A dmg signed with an
+  untrusted certificate is rejected **at mount time** (the v0.4.1 regression,
+  measured on macOS 26.5.2); `codesign --remove-signature` does not accept a
+  disk image, so it is built from scratch with `hdiutil convert`.
+- **`--bundles` overrides `bundle.targets`, it does not add to it** — that is
+  why v0.3.0's macOS updater package, and therefore its manifest, never came
+  out. The macOS matrix entry has to say `app,dmg`.
+- **`--latest=false` on stable releases.** The download repo holds all three
+  components at once; without it `gh release create` hands GitHub's "latest"
+  slot to a desktop tag and `spacetrace update` parses it as if it were not a
+  release at all (hub-v0.3.0 took the slot on 9 September 2026).
+- The artifacts are collected under `bundles/`, **not `dist/`** (that is Vite's
+  output). The five installer file names are a contract with the download page
+  in another repo; deb and rpm **deliberately** have no updater path.
+- `paths-ignore` excludes README/RELEASING/tasks/design-preview but
+  **deliberately does not exclude `CHANGELOG.md`** — the changelog is compiled
+  into the binary.
+- The binaries are published to the core repo (`RELEASE_TOKEN`); if the secret
+  is missing the workflow does not fail, it publishes to this private repo and
+  prints a warning. The tags: `desktop-continuous`, `desktop-v*`, and
+  `desktop-latest`, which holds only `latest.json`.
 
-## Alışkanlıklar
+## Habits
 
-- **Kod, kullanıcıya görünen dizeler ve yorumlar İngilizce** (çekirdek K1).
-  Türkçe kalan: commit mesajları, `RELEASING.md` ve bu dosya. GUI dizeleri
-  beş dilde — masaüstü K1'in istisnası (çekirdek `docs/DECISIONS.md` K10).
-- Yorum *ne yaptığını* değil **neden öyle yaptığını** anlatır.
-- `CHANGELOG.md` **üretiliyor, elle düzenlenmiyor**. Kaynağı çekirdek depodaki
-  `crates/changelog/changelog.json`; çekirdek checkout'undan
+- **Code, user-visible strings and comments are in English** (core K1). Documentation is
+  English too, this file included (16 September 2026); `RELEASING.md` has not
+  been translated yet, and commit messages are English going forward while the
+  existing history stays Turkish. The GUI
+  strings are in five languages — the desktop exception to K1 (core
+  `docs/DECISIONS.md` K10).
+- A comment explains not *what* it does but **why it was done that way**.
+- `CHANGELOG.md` is **generated, not hand-edited**. Its source is
+  `crates/changelog/changelog.json` in the core repo; from a core checkout,
   `cargo run -p spacetrace-changelog -- markdown --component desktop > CHANGELOG.md`.
-  Sürüm notları da aynı dosyadan `awk` ile dilimleniyor.
-- Changelog **ikiliye derleniyor**, indirilmiyor: okunduğu an kendini
-  güncelledikten hemen sonra, muhtemelen çevrimdışı. `unreleased` gösterilmiyor
-  — kimsenin elinde olmayan kodu duyurmak olurdu.
-- `tasks/` gitignore'da; yol haritası çekirdek depoda.
-- **Çekirdek deponun `.claude/` araçları burada geçerli değil.** Changelog
-  girdisi yazmak hâlâ çekirdek checkout'undan sürülüyor: kaynak
-  `crates/changelog/changelog.json` orada.
+  The release notes are sliced out of the same file with `awk`.
+- The changelog is **compiled into the binary**, not downloaded: at the moment
+  it is read, right after the app has updated itself, probably offline.
+  `unreleased` is not shown — that would announce code nobody has.
+- `tasks/` is in gitignore; the roadmap is in the core repo.
+- **The core repo's `.claude/` tools do not apply here.** Writing a changelog
+  entry is still driven from the core checkout: the source
+  `crates/changelog/changelog.json` is over there.
 
-## Depoda duran Claude araçları
+## Claude tools that live in the repo
 
-| Araç | Ne zaman |
-|------|----------|
-| `preflight` (beceri) | Push öncesi; CI iki paralel job'a bölündüğü için elle sırayla koşmak kolay unutuluyor |
-| `release` (beceri) | Sürüm kesme; üç dosyada sürüm, ve yayınlananı doğrulama adımları |
-| `dist-before-cargo` (hook) | `dist/` yokken derleyen bir cargo komutunu durduruyor |
+| Tool | When |
+|------|------|
+| `preflight` (skill) | Before pushing; CI is split into two parallel jobs, so running them by hand in order is easy to forget |
+| `release` (skill) | Cutting a release; the version in three files, and the steps that verify what was published |
+| `dist-before-cargo` (hook) | Stops a cargo command that builds while `dist/` is missing |
 
-İkisi de `disable-model-invocation`: kullanıcı `/preflight`, `/release` yazar.
+Both of them **trigger on their own** — they are not waiting for you to type
+`/preflight`. The commit/tag/push steps of `release` are gated on approval in
+the body of the skill.
 
-Paylaşılan araçlar `spacetrace-tools` plugin'inden geliyor ve `spacetrace-tools:`
-ile adlandırılıyor: `core-pin-guard` (pin ilerletmeden önce çekirdek API
-diff'i), `doc-drift-auditor`, `code-reviewer`, `test-writer`, ve üretilen
-`CHANGELOG.md`'yi koruyan hook. Plugin **bu depoda değil**, yanındaki
-`spacetrace-tooling/` private deposunda — bu depoyu klonlamak onu getirmiyor,
-ayrıca kurulması gerekiyor.
+The shared tools come from the `spacetrace-tools` plugin, with the
+`spacetrace-tools:` prefix. The ones that concern this repo:
 
-## Testler
+| Tool | When |
+|------|------|
+| `core-pin-guard` (agent) | Core API diff before moving the pin |
+| `pin-move-guard` (hook) | Warns before `cargo update` moves the pin |
+| `block-changelog-edit` (hook) | Edit/Write on the generated `CHANGELOG.md` |
+| `rustfmt-on-edit` (hook) | Formats the edited `.rs` file |
 
-Yalnızca Rust, `cd src-tauri && cargo test` (önce `yarn build`):
+There are also the `doc-drift-auditor`, `code-reviewer` and `test-writer`
+agents. **I do not keep the full list here**, it is in the plugin's README —
+keeping the inventory in five places is the only reason it goes stale.
 
-| Dosya | Ne |
+The plugin is **not in this repo**, it is in the
+`spacetrace-tooling/` private repo next to it — cloning this repo does not
+bring it: `claude plugin marketplace add unalcakir28/spacetrace-tooling` and
+then `claude plugin install spacetrace-tools@spacetrace-tooling`. The details
+are in that repo's README.
+
+## Tests
+
+Rust only, `cd src-tauri && cargo test` (`yarn build` first):
+
+| File | What |
 |-------|-----|
-| `tests/wire_names.rs` | IPC alan adı yazımı, iki yön; kendi kendini de test ediyor |
-| `tests/changelog.rs` | `CHANGELOG.md` tazeliği + masaüstü log'u boş değil |
-| `src/*.rs` içi `#[cfg(test)]` | `error`, `history`, `hints`, `lib` |
+| `tests/wire_names.rs` | IPC field name spelling, both directions; it also tests itself |
+| `tests/changelog.rs` | `CHANGELOG.md` freshness + the desktop log is not empty |
+| `#[cfg(test)]` inside `src/*.rs` | `error`, `history`, `hints`, `lib` |
 
-CI'da test job'ı yalnızca `macos-latest`'te koşuyor.
+In CI the test job runs on `macos-latest` only.
 
-## Bilinen belge boşlukları
+## Known documentation gaps
 
-- **`.p12`'nin nasıl üretildiği hiçbir yerde yazılı değil.** İş akışındaki
-  uyarı metni "RELEASING.md'de tek komut var" diyor; o komut orada yok ve
-  RELEASING.md bunu açıkça eksik olarak işaretliyor. Sertifikayı yenileyen
-  kişi oraya yazsın.
-- **"Hiçbir şey imzalanmıyor" iddiası dört yere yazılmış ve ikisi hâlâ
-  öyle diyor.** `README.md` ile `RELEASING.md` düzeltildi;
-  `.github/workflows/release.yml` başlığı ve `src-tauri/Cargo.toml` yorumu
-  düzeltilmedi. İmzalama davranışını değiştirirken dördünü birlikte güncelle.
-- `RELEASING.md` "`*.md` değişiklikleri iş akışını tetiklemez" diyor;
-  `release.yml`'in `paths-ignore`'u yalnızca `README.md` ve `RELEASING.md`'yi
-  sayıyor — `CHANGELOG.md` **bilerek** tetikliyor.
+- **How the `.p12` is produced is written down nowhere.** The warning text in
+  the workflow says "there is a single command in RELEASING.md"; that command
+  is not there and RELEASING.md explicitly marks this as missing. Whoever
+  renews the certificate should write it there.
+- **The claim "nothing is signed" is written in four places and two of them
+  still say it.** `README.md` and `RELEASING.md` were corrected; the
+  `.github/workflows/release.yml` header and the `src-tauri/Cargo.toml` comment
+  were not. When you change the signing behavior, update all four together.
+- `RELEASING.md` says "`*.md` changes do not trigger the workflow";
+  `release.yml`'s `paths-ignore` lists only `README.md` and `RELEASING.md` —
+  `CHANGELOG.md` **deliberately** does trigger it.

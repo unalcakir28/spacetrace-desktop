@@ -1,110 +1,114 @@
-# Sürüm
+# Release
 
-Bu depo private (K2), ama kurulum dosyalarının indirme bağlantısı public olmak
-zorunda — private bir deponun release varlıkları kimlik doğrulaması olmadan
-indirilemiyor. Bu yüzden `.github/workflows/release.yml` burada derliyor,
-**public `unalcakir28/spacetrace` deposuna yayınlıyor**.
+This repository is private (K2), but the download link for the installer
+files has to be public — a private repository's release assets cannot be
+downloaded without authentication. That's why `.github/workflows/release.yml`
+builds here, and **publishes to the public `unalcakir28/spacetrace`
+repository**.
 
-Tam gerekçe ve üç bileşenin ortak şeması: çekirdek deposundaki
+Full rationale and the shared scheme across the three components: the core
+repository's
 [docs/RELEASING.md](https://github.com/unalcakir28/spacetrace/blob/main/docs/RELEASING.md).
 
-## Ne zaman ne oluyor
+## What happens when
 
-| Olay | Sonuç |
+| Event | Result |
 |------|-------|
-| `main`'e push | public depoda `desktop-continuous` etiketi silinip yeniden oluşturulur |
-| `v*` etiketi push | public depoda `desktop-v*` etiketiyle kalıcı sürüm |
-| `workflow_dispatch` | derler, yayınlamaz — `publish: true` verilmedikçe (kuru çalışma) |
+| Push to `main` | the `desktop-continuous` tag in the public repo is deleted and recreated |
+| Push of a `v*` tag | permanent release under the `desktop-v*` tag in the public repo |
+| `workflow_dispatch` | builds, does not publish — unless `publish: true` is given (dry run) |
 
-`*.md`, `tasks/**` ve `design-preview.html` değişiklikleri iş akışını
-tetiklemiyor.
+Changes to `*.md`, `tasks/**` and `design-preview.html` do not trigger the
+workflow.
 
-Üretilen dosyalar — adları sabit, indirme sayfası bunlara doğrudan bağlanıyor:
+Generated files — their names are fixed, the download page links to them
+directly:
 
 ```
-spacetrace-desktop-<sürüm>-macos-universal.dmg
-spacetrace-desktop-<sürüm>-windows-x86_64-setup.exe
-spacetrace-desktop-<sürüm>-linux-x86_64.deb
-spacetrace-desktop-<sürüm>-linux-x86_64.rpm
-spacetrace-desktop-<sürüm>-linux-x86_64.AppImage
+spacetrace-desktop-<version>-macos-universal.dmg
+spacetrace-desktop-<version>-windows-x86_64-setup.exe
+spacetrace-desktop-<version>-linux-x86_64.deb
+spacetrace-desktop-<version>-linux-x86_64.rpm
+spacetrace-desktop-<version>-linux-x86_64.AppImage
 SHA256SUMS
 ```
 
-macOS tek bir **universal** dmg: indirme sayfasında tek bir macOS düğmesi olsun
-ve "hangi Mac'im var" kullanıcının problemi olmaktan çıksın diye.
+macOS ships as a single **universal** dmg: so the download page has just one
+macOS button, and "which Mac do I have" stops being the user's problem.
 
-## Gereken tek elle adım
+## The one manual step required
 
 ```bash
 gh secret set RELEASE_TOKEN --repo unalcakir28/spacetrace-desktop
 ```
 
-Token: fine-grained PAT, yalnızca `unalcakir28/spacetrace` deposunda
-**Contents: Read and write**. Oluşturma adımları çekirdek deposundaki
-RELEASING.md içinde.
+Token: fine-grained PAT, **Contents: Read and write** on the
+`unalcakir28/spacetrace` repository only. The steps to create it are in the
+core repository's RELEASING.md.
 
-Sır yoksa iş akışı hata vermez — varlıkları bu private depoda yayınlar ve bir
-uyarı basar. Yani bağlantılar public olmaz, başka bir şey bozulmaz.
+If the secret is missing, the workflow does not fail — it publishes the
+assets to this private repo and prints a warning. Meaning the links don't
+become public, nothing else breaks.
 
-## İmzalama
+## Signing
 
-**Güvenilir geliştirici sertifikası yok.** macOS ve Windows ilk açılışta uyarı
-veriyor; indirme sayfası ne yapılacağını yazıyor ve her dosyanın yanında
-`SHA256SUMS` var. Ücretli sertifika yıllık ve bir depoda duramıyor — bilinçli
-bir eksik, gizlenen bir şey değil.
+**There is no trusted developer certificate.** macOS and Windows warn on
+first launch; the download page explains what to do, and there's a
+`SHA256SUMS` next to every file. A paid certificate is annual and can't live
+in a repository — a deliberate gap, not something being hidden.
 
-**Ama macOS paketi kendinden imzalı sertifikayla imzalanıyor, ve Gatekeeper
-için değil — TCC için.** macOS Tam Disk Erişimi'ni designated requirement'a
-bağlıyor; ad-hoc imzada öyle bir şey olmadığı için cdhash'e düşüyor ve cdhash
-her derlemede değişiyor. Sonuç: kullanıcı izni veriyor, bir sonraki
-güncellemede macOS uygulamayı tanımıyor ve baştan soruyor (10 Eylül 2026'da
-kullanıcı bildirdi).
+**But the macOS package is signed with a self-signed certificate, and not
+for Gatekeeper — for TCC.** macOS binds Full Disk Access to the designated
+requirement; an ad-hoc signature has no such thing, so it falls back to the
+cdhash, and the cdhash changes on every build. Result: the user grants
+permission, and on the next update macOS doesn't recognize the app and asks
+again from scratch (reported by a user on 10 September 2026).
 
-İki sır gerekiyor:
+Two secrets are required:
 
 ```
-APPLE_CERTIFICATE            # base64'lenmiş .p12
-APPLE_CERTIFICATE_PASSWORD   # .p12 parolası
+APPLE_CERTIFICATE            # the .p12, base64-encoded
+APPLE_CERTIFICATE_PASSWORD   # the .p12 password
 ```
 
-**Sırlar yoksa iş akışı düşmüyor** — eskisi gibi ad-hoc imzalıyor ve izin
-sorularının geri geleceğini söyleyen bir uyarı basıyor.
+**If the secrets are missing the workflow doesn't fail** — it signs ad-hoc as
+before and prints a warning saying the permission prompts will come back.
 
-Bilinmesi gereken, hepsi acı çekilerek öğrenilmiş:
+What you need to know, all of it learned the hard way:
 
-- **Sertifika güvenilir kök olmak zorunda.** Tauri kimliği
-  `security find-identity -v` ile çözüyor ve o yalnızca *geçerli* kimlikleri
-  listeliyor; kendinden imzalı bir sertifika `trustRoot` yapılmadan geçerli
-  sayılmıyor. Runner'lar tek kullanımlık, o yüzden her derlemede yeniden
-  yapılıyor.
-- **Keychain açıkta kuruluyor**, Tauri'nin kendi `APPLE_CERTIFICATE`
-  yoluna bırakılmıyor: Tauri sertifikayı görmediğin geçici bir keychain'e
-  alıyor ve orada "failed to resolve signing identity" dediğinde elinde
-  hiçbir teşhis olmuyor. Derleme adımına `APPLE_CERTIFICATE` **verilmiyor**,
-  yoksa Tauri ikinci bir keychain daha kuruyor. `find-identity -v` çıktısı
-  bilerek log'a basılıyor.
-- `openssl pkcs12 -legacy` şart — OpenSSL 3'ün SHA-256 MAC'ini
-  `security import` okuyamıyor.
-- Keychain idle kilidi 21600 saniyeye çekiliyor; varsayılan beş dakika ve
-  derleme daha uzun sürüyor.
-- **Derleme sonrası bir adım paketin requirement'ını doğruluyor** ve
-  uyuşmazsa düşüyor. `leaf` değil **`root`** özeti bakılıyor. Sessizce
-  ad-hoc'a düşen bir derleme kusursuz kurulur, çalışır ve izin sorularını
-  geri getirir — fark edilmeyecek türden bir bozulma olduğu için
-  varsayılmıyor, ölçülüyor.
-- **`.dmg` bilerek imzasız yeniden üretiliyor.** Güvenilmeyen sertifikayla
-  imzalı bir dmg mount anında reddediliyor (v0.4.1, macOS 26.5.2'de
-  ölçüldü); `codesign --remove-signature` disk imajını kabul etmediği için
-  `hdiutil convert` ile baştan kuruluyor.
+- **The certificate has to be a trusted root.** Tauri resolves the identity
+  with `security find-identity -v`, and that only lists *valid* identities; a
+  self-signed certificate isn't considered valid until it's made `trustRoot`.
+  Runners are single-use, so this is redone on every build.
+- **The keychain is set up explicitly**, not left to Tauri's own
+  `APPLE_CERTIFICATE` path: Tauri puts the certificate into a temporary
+  keychain you never see, and when it says "failed to resolve signing
+  identity" there, you have no diagnostics at all. `APPLE_CERTIFICATE` is
+  **not passed** to the build step, otherwise Tauri sets up a second keychain
+  on top. The `find-identity -v` output is deliberately printed to the log.
+- `openssl pkcs12 -legacy` is required — `security import` can't read
+  OpenSSL 3's SHA-256 MAC.
+- The keychain idle lock is set to 21600 seconds; the default is five
+  minutes and the build takes longer than that.
+- **A post-build step verifies the package's requirement** and fails on a
+  mismatch. It's the **`root`** digest that's checked, not `leaf`. A build
+  that silently falls back to ad-hoc installs flawlessly, runs, and brings
+  back the permission prompts — because that's the kind of breakage that
+  goes unnoticed, it isn't assumed, it's measured.
+- **The `.dmg` is deliberately rebuilt unsigned.** A dmg signed with an
+  untrusted certificate is rejected at mount time (v0.4.1, measured on macOS
+  26.5.2); since `codesign --remove-signature` doesn't accept a disk image,
+  it's rebuilt from scratch with `hdiutil convert`.
 
-> **Eksik:** `.p12`'nin nasıl üretildiği (ortak ad `spacetrace`, kendinden
-> imzalı, kod imzalama kullanımı) burada yazılı değil. Sertifikayı yenileyecek
-> olan, o adımları buraya yazsın — iş akışındaki uyarı metni "RELEASING.md'de
-> tek komut var" diyor ve şu an o komut burada yok.
+> **Missing:** how the `.p12` is produced (common name `spacetrace`,
+> self-signed, code signing usage) isn't written down here. Whoever renews
+> the certificate should write those steps here — the warning text in the
+> workflow says "there's a single command in RELEASING.md", and right now
+> that command isn't here.
 
-## Kararlı sürüm kesmek
+## Cutting a stable release
 
-Sürüm numarası üç yerde:
+The version number is in three places:
 
 ```
 package.json                 "version"
@@ -112,36 +116,38 @@ src-tauri/Cargo.toml         version
 src-tauri/tauri.conf.json    version
 ```
 
-Üçünü de güncelle, sonra:
+Update all three, then:
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-## İkonlar
+## Icons
 
-`src-tauri/icons/icon.svg` kaynak. Türetilmiş dosyalar (`icon.icns`, `icon.ico`,
-PNG'ler, Windows Store logoları) depoda duruyor çünkü paketleyici onları
-derleme sırasında üretemez. Marka değişirse:
+`src-tauri/icons/icon.svg` is the source. The derived files (`icon.icns`,
+`icon.ico`, PNGs, Windows Store logos) live in the repo because the packager
+can't generate them at build time. If the branding changes:
 
 ```bash
-# SVG'yi 1024×1024 PNG'ye çevir, sonra:
+# convert the SVG to a 1024×1024 PNG, then:
 yarn tauri icon /tmp/icon-1024.png
-rm -rf src-tauri/icons/android src-tauri/icons/ios   # mobil hedef yok
+rm -rf src-tauri/icons/android src-tauri/icons/ios   # no mobile targets
 ```
 
-`icon.icns` ve `icon.ico` olmadan dmg ve NSIS paketleri ikonsuz çıkıyor.
+Without `icon.icns` and `icon.ico`, the dmg and NSIS packages come out
+without an icon.
 
-## Kendi kendine güncelleme
+## Self-updating
 
-Uygulama açılışta `desktop-latest` etiketindeki `latest.json`'a bakıyor ve yeni
-bir kararlı sürüm varsa kullanıcıya soruyor. Manifest her **kararlı** yayında
-silinip yeniden oluşturuluyor; `desktop-continuous`'a bakmıyor, yoksa bir
-sürüm kurmuş herkese her push önerilirdi.
+On launch, the app checks `latest.json` under the `desktop-latest` tag and
+asks the user if there's a new stable version. The manifest is deleted and
+recreated on every **stable** release; it doesn't look at
+`desktop-continuous`, otherwise everyone who's installed a version would be
+prompted on every push.
 
-**Bir kerelik kurulum.** İmzalama anahtarı üretildi ve `~/.spacetrace/updater.key`
-içinde duruyor (600, her deponun dışında). Açık anahtarı `tauri.conf.json`'da.
-Özel anahtarı sır olarak eklemek gerekiyor:
+**One-time setup.** The signing key was generated and lives in
+`~/.spacetrace/updater.key` (600, outside every repo). Its public key is in
+`tauri.conf.json`. The private key needs to be added as a secret:
 
 ```bash
 gh secret set TAURI_SIGNING_PRIVATE_KEY \
@@ -149,27 +155,30 @@ gh secret set TAURI_SIGNING_PRIVATE_KEY \
   < ~/.spacetrace/updater.key
 ```
 
-**Sır yoksa iş akışı güncelleyiciyi derleme için tamamen kapatıyor** — imzasız
-bırakmakla yetinmiyor. İkisi de ölçülerek öğrenildi:
+**If the secret is missing, the workflow turns the updater off entirely for
+the build** — it doesn't settle for leaving it unsigned. Both of the
+following were learned by measuring:
 
-- Tanımsız bir sır boş dizeye genişliyor, Tauri o boş anahtarla imzalamaya
-  çalışıp `Missing comment in secret key` ile düşüyor.
-- Özel anahtar hiç olmasa bile, yapılandırmada `pubkey` durduğu sürece yine
-  düşüyor: `A public key has been found, but no private key`.
+- An undefined secret expands to an empty string, and Tauri tries to sign
+  with that empty key and fails with `Missing comment in secret key`.
+- Even with no private key at all, as long as `pubkey` remains in the
+  configuration it still fails: `A public key has been found, but no private
+  key`.
 
-Bu yüzden yapılandırma `jq` ile kırpılıyor. Kurulum paketleri normal derlenip
-yayınlanıyor; yalnızca kendi kendine güncelleme yok — ki imzalayamayan bir boru
-hattının dürüst hâli bu. Sır eklendiği anda kendiliğinden geri geliyor.
+That's why the configuration is trimmed with `jq`. The installer packages
+build and publish normally; only self-updating is missing — which is the
+honest state for a pipeline that can't sign. It comes back on its own the
+moment the secret is added.
 
-**Bu anahtar kod imzalama değil.** Tauri'nin minisign imzası paketin bu
-boru hattından geldiğini kanıtlıyor; işletim sisteminin uygulamaya güvendiğini
-söylemiyor. macOS'ta uygulama imzasız olduğu için güncellenen paket
-Gatekeeper'a yeniden takılabilir — changelog girdisi bunu kullanıcıya söylüyor.
+**This key is not code signing.** Tauri's minisign signature proves the
+package came from this pipeline; it doesn't say the operating system trusts
+the app. Because the app is unsigned on macOS, the updated package can get
+caught by Gatekeeper again — the changelog entry tells the user this.
 
-Anahtarı kaybetmek, kurulu uygulamaların güncellenememesi demek: yeni anahtarla
-imzalanan bir manifest'i eski `pubkey` reddeder. Kurtarma yolu yeni sürümü elle
-indirtmek.
+Losing the key means installed apps can no longer update: a manifest signed
+with a new key is rejected by the old `pubkey`. The recovery path is having
+people download the new version by hand.
 
-**Updater varlıkları beş indirme adına dokunmuyor** — `.app.tar.gz`, `.sig`
-dosyaları ve `latest.json` eklenen dosyalar. İndirme sayfası eski beş ada
-bağlı ve o sayfa başka bir depoda.
+**The updater assets don't touch the five download names** — `.app.tar.gz`,
+`.sig` files and `latest.json` are added files. The download page is tied to
+the old five names, and that page is in a different repository.
