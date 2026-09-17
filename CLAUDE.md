@@ -70,9 +70,10 @@ So **the only pin is `src-tauri/Cargo.lock`**. The consequences:
 
 - `cargo update` resolves **the remote repo's `main`** — the `../spacetrace`
   checkout next to it plays no part at all, so the risk comes not from local
-  commits but from pushed ones. Moving the pin is a deliberate act; the command
-  is written down in the core repo's `release` skill
-  (`cargo update -p spacetrace-scan-core -p spacetrace-store -p spacetrace-changelog`).
+  commits but from pushed ones. Moving the pin is a deliberate act, and the
+  order it has to happen in is the `pin-bump` skill in this repo
+  (`cargo update -p spacetrace-scan-core -p spacetrace-store -p spacetrace-changelog`,
+  but the command is the easy part).
   The commit is usually `Cargo.lock` + `CHANGELOG.md`, but if the API changed
   it touches `lib.rs` too — two of the three pin commits are like that.
 - The release workflow runs `cargo fetch --locked` for this reason: without it
@@ -275,9 +276,10 @@ to break by hand:
 |------|------|
 | `preflight` (skill) | Before pushing; CI is split into two parallel jobs, so running them by hand in order is easy to forget |
 | `release` (skill) | Cutting a release; the version in three files, and the steps that verify what was published |
+| `pin-bump` (skill) | Moving the core pin; the order, and the one test failure that means something other than what it says |
 | `dist-before-cargo` (hook) | Stops a cargo command that builds while `dist/` is missing |
 
-Both of them **trigger on their own** — they are not waiting for you to type
+All three skills **trigger on their own** — they are not waiting for you to type
 `/preflight`. The commit/tag/push steps of `release` are gated on approval in
 the body of the skill.
 
