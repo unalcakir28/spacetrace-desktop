@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "spacetrace",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "identifier": "com.spacetrace.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -15,8 +15,8 @@
         "title": "spacetrace",
         "width": 1280,
         "height": 820,
-        "minWidth": 900,
-        "minHeight": 600,
+        "minWidth": 1080,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false,
         "dragDropEnabled": true
