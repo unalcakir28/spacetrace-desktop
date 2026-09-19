@@ -67,6 +67,16 @@ export interface FolderTreeProps {
    */
   patch: TrashOutcome | null;
   /**
+   * Bumped when the tree behind these ids has been replaced by a newer one.
+   *
+   * A running scan is the only thing that does this: its generation stays put
+   * across the whole scan, because the ids keep meaning the same entries, so
+   * nothing else here would notice that every figure has moved. What is open
+   * is fetched again rather than dropped — which folders a reader has expanded
+   * is the one thing a refresh must not cost them.
+   */
+  revision: number;
+  /**
    * Which measure the figures and the ordering come from.
    *
    * A change invalidates the cached children, because the backend returns them
@@ -94,6 +104,7 @@ export function FolderTree({
   mapRoot,
   chain,
   patch,
+  revision,
   basis,
   onSelectionChange,
   onContextMenu,
@@ -191,6 +202,23 @@ export function FolderTree({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain, expanded, childrenOf, load]);
+
+  // A newer tree under the same ids: every open folder's rows are refetched.
+  //
+  // Cleared and reloaded rather than patched, unlike a delete below: a scan
+  // does not report what changed, and nearly everything has. Loading over the
+  // cache instead of emptying it first is deliberate — an empty map would blank
+  // the panel for the length of a round trip, several times a scan.
+  const firstRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === firstRevision.current) return;
+    firstRevision.current = revision;
+    for (const node of expanded) load(node);
+    // `expanded` is deliberately excluded: opening a folder is what `toggle`
+    // already loads, and including it here would reload every open folder each
+    // time one more was opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision, load]);
 
   // Apply an in-place edit to the cache. The alternative — reloading — is what
   // used to throw away the user's place in the tree after every delete.

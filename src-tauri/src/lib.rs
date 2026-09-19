@@ -26,7 +26,7 @@
 //! synchronous are the ones that must answer instantly and touch nothing but a
 //! mutex, such as cancelling a scan.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -41,7 +41,7 @@ use spacetrace_scan_core::{
 };
 use spacetrace_store::{ScanMeta, Store};
 use spacetrace_treemap::sunburst::{sunburst, SunburstOptions};
-use spacetrace_treemap::{layout, squarify, LayoutOptions, Rect};
+use spacetrace_treemap::{layout, LayoutOptions, Rect};
 use tauri::Emitter;
 
 mod error;
@@ -57,6 +57,16 @@ mod remote;
 pub enum Source {
     /// A scan of this machine's filesystem, taken just now.
     Live { root: String },
+    /// A scan of this machine that has **not finished**.
+    ///
+    /// Its own variant rather than a flag on `Live`, because every guard in
+    /// this file asks `is_live()` before touching the disk and a flag would
+    /// have had to be remembered at each of them. What this tree describes is
+    /// a walk in progress: the figures are what has been read so far, and a
+    /// folder whose number has stopped climbing looks exactly like one that is
+    /// finished. So it may be read and it may not be acted on — not deleted
+    /// from, not stored (core invariant 5), not re-measured.
+    Scanning { root: String },
     /// A stored snapshot, local or downloaded.
     Snapshot {
         root: String,
@@ -115,6 +125,14 @@ struct Loaded {
     /// keeping is a question you answer *after* looking at it. `None` for a
     /// snapshot, which is already stored.
     stats: Option<ScanStats>,
+    /// The running scan this tree is a view of, when it is one.
+    ///
+    /// What it is really recording is whether the node ids in the window still
+    /// mean what they meant: every tree built from one walk's arena numbers its
+    /// entries the same way, the finished one included, so a refresh of *this*
+    /// scan may keep its generation and everything the reader had open with it.
+    /// A tree from anywhere else may not.
+    partial_of: Option<u64>,
 }
 
 /// A scan in flight, kept so it can be cancelled from another command.
@@ -128,13 +146,39 @@ struct Running {
 
 #[derive(Default)]
 pub struct AppState {
+    /// Every tree the window has open, keyed by its generation — one per tab.
+    ///
+    /// It was a single slot until tabs existed, and the change is smaller than
+    /// it looks: a generation already named a tree, there was simply only ever
+    /// one of them. **Nothing here knows what a tab is.** The window decides
+    /// which generation is in front and asks for that one by name; this side
+    /// holds trees and frees them when told to, which is why no command needed
+    /// a new argument.
+    ///
+    /// **`running` below was not generalised the same way, and that is the
+    /// limit of how far tabs go.** It is still one slot, so `begin_scan` still
+    /// cancels whatever was scanning anywhere in the app — starting a scan in
+    /// a second tab stops the first tab's. Tabs hold *finished* work side by
+    /// side; they do not run two scans at once. Making them would mean keying
+    /// `running` by tab here and moving the window's `working` state into its
+    /// `Tab` record, and nothing short of both is worth starting.
+    ///
+    /// Each entry is the whole tree: 72 bytes a node plus its name, measured at
+    /// 98 MB for 915,102 entries. That is the price of a tab staying open, and
+    /// it is charged until [`AppState::close`] is called — which is what makes
+    /// closing a tab something the window has to actually do rather than just
+    /// forget about.
+    ///
     /// A read-write lock rather than a mutex because writing a snapshot walks
     /// the whole tree and inserts a row per entry — seconds to tens of seconds
     /// on a real disk. Under a mutex every read would queue behind it and the
     /// window would freeze for the duration, which is the exact failure this
-    /// app is built to avoid. Reads run concurrently; only loading a different
-    /// tree or editing this one has to wait.
-    current: RwLock<Option<Loaded>>,
+    /// app is built to avoid. Reads run concurrently; only adding a tree or
+    /// editing one has to wait.
+    trees: RwLock<HashMap<u64, Loaded>>,
+    /// The newest scan that has stopped running, whether it finished or was
+    /// cancelled. Read under the tree lock by [`AppState::set_partial`].
+    finished: AtomicU64,
     /// Incremented every time a different tree is loaded.
     ///
     /// This is what makes a node id meaningful. On its own an id is just an
@@ -169,36 +213,34 @@ pub const STALE_GENERATION: &str = "stale_generation";
 pub const SCAN_CANCELLED: &str = "scan_cancelled";
 
 impl AppState {
-    /// Read the open tree without caring which one it is. Only for commands
-    /// that take no node id.
-    fn with_tree<T>(
-        &self,
-        f: impl FnOnce(&Tree, &Source) -> Result<T, AppError>,
-    ) -> Result<T, AppError> {
-        let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard
-            .as_ref()
-            .ok_or_else(|| AppError::new("nothing_open"))?;
-        f(&loaded.tree, &loaded.source)
-    }
-
-    /// Read the open tree, but only if it is still the one `generation` names.
+    /// The tree `generation` names.
+    ///
+    /// A generation that is not here is `stale_generation` — the window is
+    /// holding ids from a tree that was replaced or whose tab was closed, and
+    /// the only safe answer is to say so. With nothing open at all the answer
+    /// is `nothing_open`, which is a different situation and reads differently
+    /// on screen.
     fn with_tree_at<T>(
         &self,
         generation: u64,
         f: impl FnOnce(&Tree, &Source) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
-        let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard
-            .as_ref()
-            .ok_or_else(|| AppError::new("nothing_open"))?;
-        if loaded.generation != generation {
-            return Err(AppError::new(STALE_GENERATION));
-        }
+        let guard = self.trees.read().map_err(|_| lock_poisoned())?;
+        let loaded = Self::find(&guard, generation)?;
         f(&loaded.tree, &loaded.source)
     }
 
-    /// Read the open tree along with its age bands, computing them once.
+    /// The one lookup, so "missing" cannot be reported two different ways.
+    fn find(trees: &HashMap<u64, Loaded>, generation: u64) -> Result<&Loaded, AppError> {
+        if trees.is_empty() {
+            return Err(AppError::new("nothing_open"));
+        }
+        trees
+            .get(&generation)
+            .ok_or_else(|| AppError::new(STALE_GENERATION))
+    }
+
+    /// Read a tree along with its age bands, computing them once.
     ///
     /// The closure is handed the bands rather than the `Loaded`, so the
     /// `OnceLock` cannot be reached — and therefore cannot be filled a second
@@ -208,36 +250,26 @@ impl AppState {
         generation: u64,
         f: impl FnOnce(&Tree, &[Option<u8>]) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
-        let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard
-            .as_ref()
-            .ok_or_else(|| AppError::new("nothing_open"))?;
-        if loaded.generation != generation {
-            return Err(AppError::new(STALE_GENERATION));
-        }
+        let guard = self.trees.read().map_err(|_| lock_poisoned())?;
+        let loaded = Self::find(&guard, generation)?;
         let bands = loaded
             .bands
             .get_or_init(|| median_bands(&loaded.tree, now_seconds(), DEFAULT_EDGES));
         f(&loaded.tree, bands)
     }
 
-    /// Read the open tree along with the entries that should not be listed.
+    /// Read a tree along with the entries that should not be listed.
     fn with_visible_at<T>(
         &self,
         generation: u64,
         f: impl FnOnce(&Tree, &Source, &HashSet<NodeId>) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
-        let guard = self.current.read().map_err(|_| lock_poisoned())?;
-        let loaded = guard
-            .as_ref()
-            .ok_or_else(|| AppError::new("nothing_open"))?;
-        if loaded.generation != generation {
-            return Err(AppError::new(STALE_GENERATION));
-        }
+        let guard = self.trees.read().map_err(|_| lock_poisoned())?;
+        let loaded = Self::find(&guard, generation)?;
         f(&loaded.tree, &loaded.source, &loaded.hidden)
     }
 
-    /// Edit the open tree in place, keeping its generation.
+    /// Edit a tree in place, keeping its generation.
     ///
     /// Keeping the generation is the whole point: it is what lets the window
     /// carry on showing the same expanded folders, the same selection and the
@@ -247,19 +279,132 @@ impl AppState {
         generation: u64,
         f: impl FnOnce(&mut Loaded) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
-        let mut guard = self.current.write().map_err(|_| lock_poisoned())?;
-        let loaded = guard
-            .as_mut()
-            .ok_or_else(|| AppError::new("nothing_open"))?;
-        if loaded.generation != generation {
-            return Err(AppError::new(STALE_GENERATION));
+        let mut guard = self.trees.write().map_err(|_| lock_poisoned())?;
+        if guard.is_empty() {
+            return Err(AppError::new("nothing_open"));
         }
+        let loaded = guard
+            .get_mut(&generation)
+            .ok_or_else(|| AppError::new(STALE_GENERATION))?;
         // Before the edit, not after: `f` returns early on failure, and a
         // half-applied edit would leave the cache describing neither tree.
         loaded.bands = std::sync::OnceLock::new();
         f(loaded)
     }
 
+    /// Forget a tree and give its memory back.
+    ///
+    /// The only way a tree leaves this map. A tab that is closed and not
+    /// reported here is a hundred megabytes the window can no longer reach and
+    /// will never free, so the window closing a tab is a request, not a
+    /// courtesy. Closing something that is already gone is not an error: a tab
+    /// can be closed while its own scan is still landing.
+    fn close(&self, generation: u64) -> Result<bool, AppError> {
+        let mut guard = self.trees.write().map_err(|_| lock_poisoned())?;
+        Ok(guard.remove(&generation).is_some())
+    }
+
+    /// How many trees are held. Exists to hold this file to its word about
+    /// giving the memory back.
+    #[cfg(test)]
+    fn open_count(&self) -> Result<usize, AppError> {
+        let guard = self.trees.read().map_err(|_| lock_poisoned())?;
+        Ok(guard.len())
+    }
+
+    /// Install a tree, taking over the tab a running scan already has.
+    ///
+    /// The three callers below differ in two facts and nothing else: **which
+    /// scan produced this tree**, and **whether that scan is still going**.
+    /// Everything they used to spell out for themselves — the shape of a
+    /// `Loaded`, the new generation, and the rule that one scan keeps one
+    /// generation from its first view to its last — is written here once.
+    ///
+    /// `scan` is `None` for a tree that is not a scan of this machine at all: a
+    /// stored snapshot, or one fetched from an agent. Those never adopt a tab.
+    fn install(
+        &self,
+        tree: Tree,
+        source: Source,
+        capacity: Option<Capacity>,
+        stats: Option<ScanStats>,
+        scan: Option<u64>,
+        still_running: bool,
+    ) -> Result<u64, AppError> {
+        let mut guard = self.trees.write().map_err(|_| lock_poisoned())?;
+        Ok(self.install_into(
+            &mut guard,
+            tree,
+            source,
+            capacity,
+            stats,
+            scan,
+            still_running,
+        ))
+    }
+
+    /// The body of an install, for a caller that is already holding the lock.
+    ///
+    /// Split out for exactly one caller: [`AppState::set_partial`] has to decide
+    /// whether the scan is still running **and** install under one lock, and a
+    /// `RwLock` cannot be taken twice on its way down.
+    #[allow(clippy::too_many_arguments)]
+    fn install_into(
+        &self,
+        guard: &mut HashMap<u64, Loaded>,
+        tree: Tree,
+        source: Source,
+        capacity: Option<Capacity>,
+        stats: Option<ScanStats>,
+        scan: Option<u64>,
+        still_running: bool,
+    ) -> u64 {
+        let partial_of = if still_running { scan } else { None };
+
+        // **Keeps the generation when a tree for this scan is already open.**
+        // That is the difference between a view that fills in and one that
+        // starts over: a generation is what invalidates every node id the
+        // window holds, and refreshing four times a scan would throw away the
+        // selection, the open folders and the zoom each time — on the one tree
+        // a reader is watching *because* it is changing. Keeping it is sound
+        // rather than convenient: every tree built from one walk's arena
+        // numbers its entries identically, because the arena only ever grows.
+        // The scan's own final tree is the last such refresh, which is why the
+        // map does not jump at the moment it lands.
+        if let Some(scan) = scan {
+            if let Some(loaded) = guard.values_mut().find(|l| l.partial_of == Some(scan)) {
+                loaded.tree = tree;
+                loaded.source = source;
+                loaded.capacity = capacity;
+                // The bands were computed from bytes the walk has since added
+                // to; keeping them would colour the new entries by the old
+                // median.
+                loaded.bands = std::sync::OnceLock::new();
+                loaded.stats = stats;
+                loaded.partial_of = partial_of;
+                return loaded.generation;
+            }
+        }
+
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        guard.insert(
+            generation,
+            Loaded {
+                tree,
+                source,
+                generation,
+                hidden: HashSet::new(),
+                capacity,
+                bands: std::sync::OnceLock::new(),
+                stats,
+                partial_of,
+            },
+        );
+        generation
+    }
+
+    /// A tree that did not come from a scan of this machine: a stored snapshot,
+    /// or one read from an agent. Always a tab of its own.
     fn set(
         &self,
         tree: Tree,
@@ -267,28 +412,76 @@ impl AppState {
         capacity: Option<Capacity>,
         stats: Option<ScanStats>,
     ) -> Result<u64, AppError> {
-        let mut guard = self.current.write().map_err(|_| lock_poisoned())?;
-        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        *guard = Some(Loaded {
-            tree,
-            source,
-            generation,
-            hidden: HashSet::new(),
-            capacity,
-            bands: std::sync::OnceLock::new(),
-            stats,
-        });
-        Ok(generation)
+        self.install(tree, source, capacity, stats, None, false)
     }
 
-    /// The progress object of whatever is running, if anything.
+    /// Show what a running scan has built so far.
+    ///
+    /// `None` when the scan has already ended. Checked **under the tree lock**,
+    /// holding it across the install, which is not where it started out: the
+    /// refactor that gave the three installers one body left the check outside,
+    /// a few instructions ahead of `trees.write()`.
+    ///
+    /// What fits in those few instructions: the check passes, the scan ends,
+    /// its tree lands, and only then does this one take the lock — by which
+    /// time the entry it meant to update no longer says `partial_of`, so it
+    /// inserts a **new generation instead**. Not a corrupted map; a tree no tab
+    /// will ever be told about and no tab can therefore close, held for as long
+    /// as the window is open.
+    ///
+    /// Deliberately not covered by a test. A test was written and could not
+    /// tell the two orderings apart over 128,000 racing calls, which is the
+    /// honest answer: the window is real and it is a handful of instructions
+    /// wide. Holding the lock costs nothing and makes it a property of the
+    /// code rather than of the scheduler.
+    fn set_partial(
+        &self,
+        tree: Tree,
+        capacity: Option<Capacity>,
+        scan: u64,
+    ) -> Result<Option<u64>, AppError> {
+        let source = Source::Scanning {
+            root: tree.root_path().to_string_lossy().into_owned(),
+        };
+        let mut guard = self.trees.write().map_err(|_| lock_poisoned())?;
+        if scan <= self.finished.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        Ok(Some(self.install_into(
+            &mut guard,
+            tree,
+            source,
+            capacity,
+            None,
+            Some(scan),
+            true,
+        )))
+    }
+
+    /// Put the finished scan in place of the running view of the same scan.
+    fn set_scanned(
+        &self,
+        tree: Tree,
+        source: Source,
+        capacity: Option<Capacity>,
+        stats: ScanStats,
+        scan: u64,
+    ) -> Result<u64, AppError> {
+        self.install(tree, source, capacity, Some(stats), Some(scan), false)
+    }
+
+    /// The progress object of whatever is running, with the scan's id.
     ///
     /// Cloned out under the lock rather than handed out as a borrow, so that
-    /// reading a preview cannot hold the scan's own mutex while it lays out a
-    /// map — the scan would then be waiting on the window it exists to feed.
-    fn running_progress(&self) -> Result<Option<Arc<ScanProgress>>, AppError> {
+    /// reading a running scan's tree cannot hold the scan's own mutex while it
+    /// lays out a map — the scan would then be waiting on the window it exists
+    /// to feed. The id comes with it because an answer has to say *which* scan
+    /// it belongs to.
+    fn running(&self) -> Result<Option<(u64, Arc<ScanProgress>)>, AppError> {
         let guard = self.running.lock().map_err(|_| lock_poisoned())?;
-        Ok(guard.as_ref().map(|running| Arc::clone(&running.progress)))
+        Ok(guard
+            .as_ref()
+            .map(|running| (running.id, Arc::clone(&running.progress))))
     }
 
     /// Register a starting scan, stopping whatever was already running.
@@ -307,7 +500,17 @@ impl AppState {
     }
 
     /// Forget a finished scan, unless a newer one has already replaced it.
+    ///
+    /// Recording the id is what stops a refresh that was already in flight from
+    /// putting a half-read tree back over the finished one: from here on, a
+    /// partial view of this scan is refused.
     fn end_scan(&self, id: u64) {
+        self.finished.fetch_max(id, Ordering::SeqCst);
+        self.forget_scan(id);
+    }
+
+    /// Drop the registration itself, leaving the record above alone.
+    fn forget_scan(&self, id: u64) {
         let Ok(mut guard) = self.running.lock() else {
             return;
         };
@@ -582,6 +785,13 @@ impl From<Phase> for ScanPhase {
         match phase {
             Phase::Walking => ScanPhase::Walking,
             Phase::Finishing => ScanPhase::Finishing,
+            // The core reports these while a scan is being written to a
+            // database, which this app never does *during* a scan — saving a
+            // snapshot is a separate command with a channel of its own, so
+            // neither can reach this window's progress strip. Mapped rather
+            // than given words of their own, because a phase name is five
+            // translations and a claim that the window can show it.
+            Phase::Saving | Phase::Checksumming => ScanPhase::Finishing,
         }
     }
 }
@@ -715,8 +925,8 @@ async fn scan_directory(
         root: tree.root_path().to_string_lossy().into_owned(),
     };
     let capacity = stats.capacity;
-    let generation = state.set(tree, source, capacity, Some(stats.clone()))?;
-    state.with_tree(|tree, source| {
+    let generation = state.set_scanned(tree, source, capacity, stats.clone(), scan_id)?;
+    state.with_tree_at(generation, |tree, source| {
         Ok(opened(
             tree,
             source,
@@ -753,6 +963,20 @@ fn refresh_capacity(
         }
         Ok(loaded.capacity.map(CapacityView::from))
     })
+}
+
+/// Give back the tree behind a tab that has been closed.
+///
+/// `(async)` for the reason every command that borrows `State` is, not because
+/// it waits for anything: the work is one `HashMap::remove`, and the drop it
+/// causes is the entire point — a tree is ninety-odd megabytes for a million
+/// entries and nothing else will ever release it. Answers whether there was
+/// anything there,
+/// so a double close — a tab shut while its own scan is still landing — is a
+/// `false` rather than an error nobody can act on.
+#[tauri::command(async)]
+fn close_tree(state: tauri::State<'_, AppState>, generation: u64) -> Result<bool, AppError> {
+    state.close(generation)
 }
 
 /// Stop the scan that is running, if there is one.
@@ -889,6 +1113,7 @@ pub struct SavedSnapshot {
 #[tauri::command(async)]
 fn save_snapshot(
     state: tauri::State<'_, AppState>,
+    generation: u64,
     db: String,
     label: Option<String>,
 ) -> Result<SavedSnapshot, AppError> {
@@ -896,10 +1121,11 @@ fn save_snapshot(
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty());
 
-    let guard = state.current.read().map_err(|_| lock_poisoned())?;
-    let loaded = guard
-        .as_ref()
-        .ok_or_else(|| AppError::new("nothing_open"))?;
+    // Named rather than assumed: with more than one tree open, "save the open
+    // scan" has no answer, and guessing it would write the wrong tab's tree
+    // under the right tab's label.
+    let guard = state.trees.read().map_err(|_| lock_poisoned())?;
+    let loaded = AppState::find(&guard, generation)?;
     let stats = savable(loaded)?;
 
     let mut store = Store::open(&db).map_err(|e| {
@@ -1001,7 +1227,7 @@ async fn open_snapshot(
     let capacity = snapshot_capacity(&meta);
     let source = snapshot_source(&meta, None);
     let generation = state.set(tree, source, capacity, None)?;
-    state.with_tree(|tree, source| {
+    state.with_tree_at(generation, |tree, source| {
         Ok(opened(
             tree,
             source,
@@ -1110,6 +1336,18 @@ pub struct TileArrays {
     pub count: usize,
 }
 
+/// A layout coordinate as it should be written to the window.
+///
+/// The layout works in f64 and serde writes every digit of one: a full-disk map
+/// is over a hundred thousand tiles, and four coordinates each at seventeen
+/// significant figures is 10.4 MB of JSON to build here, hand across and parse
+/// there. Two decimals is 5.2 MB for a picture drawn at two device pixels per
+/// CSS pixel — a hundredth of a pixel was never going to be visible, and the
+/// window hit-tests against these same numbers, so nothing can disagree.
+fn on_wire(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
 /// Lay out a subtree. Returns tiles in draw order: a parent always precedes its
 /// own children, so painting the array in order puts children on top.
 #[tauri::command(async)]
@@ -1141,10 +1379,10 @@ fn treemap(state: tauri::State<'_, AppState>, req: LayoutRequest) -> Result<Tile
         for tile in map.tiles() {
             let n = tree.node(tile.node);
             arrays.node.push(tile.node);
-            arrays.x.push(tile.rect.x);
-            arrays.y.push(tile.rect.y);
-            arrays.w.push(tile.rect.w);
-            arrays.h.push(tile.rect.h);
+            arrays.x.push(on_wire(tile.rect.x));
+            arrays.y.push(on_wire(tile.rect.y));
+            arrays.w.push(on_wire(tile.rect.w));
+            arrays.h.push(on_wire(tile.rect.h));
             arrays.depth.push(tile.depth);
             arrays.is_dir.push(n.is_dir());
             arrays.truncated.push(tile.truncated);
@@ -1194,112 +1432,56 @@ fn age_profile(
     })
 }
 
-// ------------------------------------------------------------- live preview
+// --------------------------------------------------------- the running scan
 
-/// One tile of the map a scan draws while it is still running.
+/// The tree the running scan has built so far, as an ordinary opened view.
 ///
-/// Carries its own name, unlike the finished map's tiles: there are at most a
-/// few dozen of these and they change every tick, so a second round trip to
-/// fetch names would cost more than the names do.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveTile {
-    pub name: String,
-    pub is_dir: bool,
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-    /// Bytes found under it so far. **Not** what is there — see the note on
-    /// the command below.
-    pub alloc: u64,
-    pub size: u64,
-    pub files: u64,
-    /// Same index the finished map uses, so the colours do not change when
-    /// the scan ends and the real tree takes over.
-    pub category: u8,
-}
-
-/// How many of the root's children the preview draws.
+/// **The whole point is that there is nothing special about what comes back.**
+/// It is the same [`Opened`] a finished scan returns, over the same node ids,
+/// so the window draws a scan in progress with the folder list, the map and the
+/// inspector it already has rather than with a second set of views built for
+/// waiting. A scan of a real disk is the one time this app has something worth
+/// showing and shows nothing.
 ///
-/// A folder with ten thousand children would otherwise put ten thousand names
-/// across the IPC boundary eight times a second, to paint tiles a pixel wide.
-/// The largest few dozen are the whole of what anyone can read while a scan is
-/// moving, and they are the ones being watched.
-const LIVE_TILES: usize = 48;
-
-/// The map to draw while a scan is running.
+/// `None` when no scan is running, when the walk has not pushed its root yet,
+/// or when the scan has ended since the window asked — the last of those is a
+/// refresh that lost a race with the scan's own result, and the honest answer
+/// to it is "there is no running scan", not an error.
 ///
-/// **These figures are partial and the view that draws them has to say so.**
-/// Each one is what has been found under that folder *so far*; a folder whose
-/// number has stopped climbing looks exactly like a folder that has been fully
-/// read, and only one of those can be quoted. When the scan finishes the real
-/// tree replaces this entirely rather than being merged into it.
-///
-/// Returns nothing when no scan is running, or before the root's own listing
-/// has finished — which is the honest answer to "what have you found", not an
-/// error.
+/// **Every figure in it is partial.** `Source::Scanning` is what says so, and
+/// every guard that touches the disk refuses on it: nothing here may be
+/// deleted from or stored.
 #[tauri::command(async)]
-fn live_tiles(
+fn scan_view(
     state: tauri::State<'_, AppState>,
-    width: f64,
-    height: f64,
-) -> Result<Vec<LiveTile>, AppError> {
-    let Some(progress) = state.running_progress()? else {
-        return Ok(Vec::new());
+    basis: SizeBasis,
+) -> Result<Option<Opened>, AppError> {
+    let Some((scan, progress)) = state.running()? else {
+        return Ok(None);
     };
-    Ok(live_layout(&progress.live.snapshot(), width, height))
-}
-
-/// The placement, separated from the command so it can be tested.
-///
-/// A `tauri::State` cannot be built in a test, so a rule that lived inside the
-/// command would be a rule nothing could exercise — and this one has three
-/// things worth pinning: the cap, the measure the rectangles follow, and what
-/// happens before anything has been found.
-fn live_layout(
-    found: &[spacetrace_scan_core::LiveEntry],
-    width: f64,
-    height: f64,
-) -> Vec<LiveTile> {
-    let found = &found[..found.len().min(LIVE_TILES)];
-    if found.is_empty() || width <= 0.0 || height <= 0.0 {
-        return Vec::new();
-    }
-
-    // Laid out on `alloc` because that is the desktop's default measure and
-    // invariant #6 applies here too: the size of a rectangle and the number
-    // reported for it have to come from the same column.
-    let weights: Vec<(NodeId, f64)> = found
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| (index as NodeId, entry.alloc as f64))
-        .collect();
-
-    squarify(&weights, Rect::new(0.0, 0.0, width, height), 1.0)
-        .into_iter()
-        .filter_map(|(index, rect)| {
-            let entry = found.get(index as usize)?;
-            Some(LiveTile {
-                name: entry.name.clone(),
-                is_dir: entry.is_dir,
-                x: rect.x,
-                y: rect.y,
-                w: rect.w,
-                h: rect.h,
-                alloc: entry.alloc,
-                size: entry.size,
-                files: entry.files,
-                category: Category::of(
-                    &entry.name,
-                    match entry.is_dir {
-                        true => EntryKind::Dir,
-                        false => EntryKind::File,
-                    },
-                ) as u8,
-            })
-        })
-        .collect()
+    let Some(tree) = progress.partial.snapshot() else {
+        return Ok(None);
+    };
+    // Read before the tree is handed over, so the count cannot describe a
+    // later moment than the tree it is reported beside.
+    let errors = progress.errors.load(Ordering::Relaxed);
+    let capacity = capacity_of(tree.root_path());
+    let Some(generation) = state.set_partial(tree, capacity, scan)? else {
+        return Ok(None);
+    };
+    state.with_tree_at(generation, |tree, source| {
+        Ok(Some(opened(
+            tree,
+            source,
+            errors,
+            // A running scan's failures are counted, not listed: the samples
+            // are collected by the scanner and handed over when it ends.
+            Vec::new(),
+            generation,
+            capacity,
+            basis,
+        )))
+    })
 }
 
 // ------------------------------------------------------------------ rings
@@ -2035,7 +2217,7 @@ async fn open_remote_snapshot(
     let capacity = snapshot_capacity(&meta);
     let source = snapshot_source(&meta, Some(url));
     let generation = state.set(tree, source, capacity, None)?;
-    state.with_tree(|tree, source| {
+    state.with_tree_at(generation, |tree, source| {
         Ok(opened(
             tree,
             source,
@@ -2057,6 +2239,18 @@ pub struct ScanTarget {
     pub note: String,
 }
 
+/// A whole filesystem, offered as somewhere a scan can start.
+#[derive(Debug, Clone, Serialize)]
+pub struct Volume {
+    /// What it is called where the person will recognise it — the mount
+    /// point's own name, not the device node.
+    pub name: String,
+    pub path: String,
+    pub capacity: Option<CapacityView>,
+    /// The one the machine booted from, which belongs at the top of the list.
+    pub is_root: bool,
+}
+
 /// What the window offers before anything is open.
 #[derive(Debug, Clone, Serialize)]
 pub struct StartingPoints {
@@ -2064,6 +2258,10 @@ pub struct StartingPoints {
     pub home_volume: Option<CapacityView>,
     pub home: Option<String>,
     pub targets: Vec<ScanTarget>,
+    /// Whole disks, for the case the folders above do not cover: "what is on
+    /// this drive" is the question this app is named after, and until now the
+    /// only way to ask it was to type the path into a folder chooser.
+    pub volumes: Vec<Volume>,
 }
 
 /// Folders to offer on the opening screen.
@@ -2082,10 +2280,13 @@ fn starting_points() -> StartingPoints {
         .filter(|home| home.is_dir());
 
     let Some(home) = home else {
+        // No home folder is a strange machine, not an unusable one: the disks
+        // are still there and are still the more useful answer of the two.
         return StartingPoints {
             home_volume: None,
             home: None,
             targets: Vec::new(),
+            volumes: volumes(),
         };
     };
 
@@ -2139,7 +2340,149 @@ fn starting_points() -> StartingPoints {
         home_volume: capacity_of(&home).map(CapacityView::from),
         home: Some(home.to_string_lossy().into_owned()),
         targets,
+        volumes: volumes(),
     }
+}
+
+/// The disks this machine has mounted, as somewhere to start a scan.
+///
+/// Deliberately **not** `scan-core`'s `Mounts`. That reads the mount table to
+/// find scan boundaries and is right to list `/dev`, `/System/Volumes/VM` and
+/// every other thing the kernel has mounted; what belongs on an opening screen
+/// is the handful of disks a person would name. The two lists answer different
+/// questions and would only drift if one were made to serve both.
+///
+/// Anything that cannot be read is left out rather than shown and made to fail
+/// on click, which is the same rule the folder targets above follow.
+fn volumes() -> Vec<Volume> {
+    let mut found: Vec<Volume> = Vec::new();
+    let mut seen_devices: HashSet<u64> = HashSet::new();
+
+    let mut add = |path: PathBuf, is_root: bool, seen: &mut HashSet<u64>| {
+        if !path.is_dir() {
+            return;
+        }
+        // Two paths onto one filesystem is one disk. macOS reaches the boot
+        // volume as both `/` and `/Volumes/Macintosh HD`, and listing it twice
+        // would be the first thing anyone noticed.
+        if let Some(device) = device_of(&path) {
+            if !seen.insert(device) {
+                return;
+            }
+        }
+        let name = if is_root {
+            root_volume_name(&path)
+        } else {
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_string_lossy().into_owned())
+        };
+        found.push(Volume {
+            name,
+            path: path.to_string_lossy().into_owned(),
+            capacity: capacity_of(&path).map(CapacityView::from),
+            is_root,
+        });
+    };
+
+    #[cfg(unix)]
+    add(PathBuf::from("/"), true, &mut seen_devices);
+
+    #[cfg(target_os = "macos")]
+    {
+        // Every APFS container carries these beside the volume people mean.
+        // They are mounted, they are real, and not one of them is an answer to
+        // "which disk shall I look at" — the names are fixed by the system.
+        const SYSTEM_VOLUMES: &[&str] = &[
+            "Recovery",
+            "Preboot",
+            "VM",
+            "Update",
+            "xarts",
+            "iSCPreboot",
+            "Hardware",
+        ];
+        if let Ok(entries) = std::fs::read_dir("/Volumes") {
+            let mut paths: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.file_name()
+                        .map(|n| !SYSTEM_VOLUMES.contains(&&*n.to_string_lossy()))
+                        .unwrap_or(false)
+                })
+                .collect();
+            paths.sort();
+            for path in paths {
+                add(path, false, &mut seen_devices);
+            }
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // Where desktop environments mount removable media. Reading
+        // `/proc/mounts` instead would mean filtering out several dozen
+        // pseudo-filesystems by name, which is the same list written backwards.
+        let user = std::env::var("USER").unwrap_or_default();
+        let roots = [
+            PathBuf::from("/media").join(&user),
+            PathBuf::from("/run/media").join(&user),
+            PathBuf::from("/media"),
+            PathBuf::from("/mnt"),
+        ];
+        for root in roots {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            paths.sort();
+            for path in paths {
+                add(path, false, &mut seen_devices);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    for letter in b'A'..=b'Z' {
+        add(
+            PathBuf::from(format!("{}:\\", letter as char)),
+            letter == b'C',
+            &mut seen_devices,
+        );
+    }
+
+    found
+}
+
+/// The filesystem a path is on, for telling two mount points of one disk apart.
+#[cfg(unix)]
+fn device_of(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.dev())
+}
+
+/// No cheap equivalent on Windows, where a drive letter is already the identity.
+#[cfg(not(unix))]
+fn device_of(_path: &Path) -> Option<u64> {
+    None
+}
+
+/// What to call the volume the machine booted from.
+///
+/// `/` is what it is, and it is also what nobody calls their disk. macOS
+/// publishes the friendly name as a symlink in `/Volumes`; everywhere else the
+/// path is the honest answer.
+fn root_volume_name(path: &Path) -> String {
+    #[cfg(target_os = "macos")]
+    if let Ok(entries) = std::fs::read_dir("/Volumes") {
+        for entry in entries.flatten() {
+            if std::fs::read_link(entry.path()).ok().as_deref() == Some(Path::new("/")) {
+                return entry.file_name().to_string_lossy().into_owned();
+            }
+        }
+    }
+    path.to_string_lossy().into_owned()
 }
 
 /// Where the CLI keeps its snapshot database, so the app opens the same history.
@@ -2330,6 +2673,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan_directory,
             cancel_scan,
+            close_tree,
             refresh_capacity,
             starting_points,
             save_snapshot,
@@ -2343,7 +2687,7 @@ pub fn run() {
             children,
             ancestors,
             age_profile,
-            live_tiles,
+            scan_view,
             rings,
             absolute_path,
             reveal,
@@ -2545,7 +2889,7 @@ mod tests {
     #[test]
     fn nothing_is_open_at_startup() {
         let state = AppState::default();
-        let err = state.with_tree(|_, _| Ok(())).unwrap_err();
+        let err = state.with_tree_at(1, |_, _| Ok(())).unwrap_err();
         assert_eq!(err.code, "nothing_open");
     }
 
@@ -2633,96 +2977,319 @@ mod tests {
         assert_eq!(after, Some(0), "the cache must not survive the edit");
     }
 
-    /// The live preview during a scan. Everything a reader would notice is
-    /// decided in `live_layout`, and none of it can be reached through the
-    /// command itself — a `tauri::State` cannot be built here.
-    mod live_preview {
-        use super::*;
-        use spacetrace_scan_core::LiveEntry;
+    /// The disks offered on the opening screen.
+    ///
+    /// Run against this machine rather than a fixture: the whole risk in that
+    /// code is what a real mount table looks like, and a fixture would only
+    /// prove the filter agrees with the filter.
+    #[test]
+    fn the_volume_list_is_usable_as_offered() {
+        let found = volumes();
+        assert!(
+            !found.is_empty(),
+            "a machine running this test has at least one filesystem"
+        );
 
-        fn entry(name: &str, alloc: u64) -> LiveEntry {
-            LiveEntry {
-                name: name.to_string(),
-                is_dir: true,
-                size: alloc,
-                alloc,
-                files: 1,
-            }
-        }
+        let mut paths: Vec<&str> = found.iter().map(|v| v.path.as_str()).collect();
+        let before = paths.len();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(
+            before,
+            paths.len(),
+            "the same disk must not be listed twice"
+        );
 
-        #[test]
-        fn a_scan_that_has_found_nothing_yet_draws_nothing() {
-            assert!(live_layout(&[], 800.0, 600.0).is_empty());
-            // Found, but all of it empty: there is no proportion to draw and
-            // a map of equal grey boxes would be a claim nobody made.
-            let nothing = [entry("a", 0), entry("b", 0)];
-            assert!(live_layout(&nothing, 800.0, 600.0).is_empty());
-        }
+        assert_eq!(
+            found.iter().filter(|v| v.is_root).count(),
+            1,
+            "exactly one of them is the disk the machine booted from"
+        );
 
-        /// A window that has not been measured yet, or has been collapsed.
-        #[test]
-        fn a_drawing_area_with_no_room_draws_nothing() {
-            let found = [entry("a", 100)];
-            assert!(live_layout(&found, 0.0, 600.0).is_empty());
-            assert!(live_layout(&found, 800.0, -1.0).is_empty());
-        }
-
-        /// The rectangles have to follow the same measure the figures do.
-        #[test]
-        fn a_folder_holding_twice_as_much_gets_twice_the_area() {
-            let found = [entry("big", 200), entry("small", 100)];
-            let tiles = live_layout(&found, 300.0, 200.0);
-            assert_eq!(tiles.len(), 2);
-
-            let big = tiles.iter().find(|t| t.name == "big").unwrap();
-            let small = tiles.iter().find(|t| t.name == "small").unwrap();
-            let ratio = (big.w * big.h) / (small.w * small.h);
+        for volume in &found {
             assert!(
-                (ratio - 2.0).abs() < 0.05,
-                "the areas are {ratio:.3}× apart, not 2×"
+                Path::new(&volume.path).is_dir(),
+                "{} was offered and cannot be opened",
+                volume.path
+            );
+            assert!(
+                !volume.name.is_empty(),
+                "{} has no name to show",
+                volume.path
             );
         }
 
-        /// A folder with thousands of children would otherwise put thousands
-        /// of names across the IPC boundary four times a second, to paint
-        /// tiles a pixel wide.
+        #[cfg(target_os = "macos")]
+        assert!(
+            !found.iter().any(|v| v.name == "Recovery"),
+            "the APFS system volumes are not an answer to \"which disk\""
+        );
+    }
+
+    /// More than one tree open at a time — one per tab.
+    ///
+    /// The window owns the idea of a tab; what is checked here is the promise
+    /// this side makes to it: a generation names one tree for as long as it is
+    /// open, opening another does not disturb it, and closing is the only thing
+    /// that frees one.
+    mod tabs {
+        use super::*;
+
         #[test]
-        fn only_the_largest_handful_are_drawn() {
-            let many: Vec<LiveEntry> = (0..500)
-                .map(|i| entry(&format!("d{i:0>3}"), 1_000_000 - i as u64))
-                .collect();
-            let tiles = live_layout(&many, 1000.0, 700.0);
-            assert!(tiles.len() <= LIVE_TILES, "drew {} tiles", tiles.len());
-            // And they are the largest, not the first that happened to fit.
-            assert!(tiles.iter().any(|t| t.name == "d000"));
-            assert!(!tiles.iter().any(|t| t.name == "d499"));
+        fn opening_a_second_tree_leaves_the_first_alone() {
+            let state = AppState::default();
+            let first = state
+                .set(one_node_tree("first"), live("/one"), None, None)
+                .unwrap();
+            let second = state
+                .set(one_node_tree("second"), live("/two"), None, None)
+                .unwrap();
+
+            assert_ne!(first, second, "each tree gets a generation of its own");
+            assert_eq!(state.open_count().unwrap(), 2);
+            state
+                .with_tree_at(first, |tree, _| {
+                    assert_eq!(tree.name(tree.root()), "first");
+                    Ok(())
+                })
+                .unwrap();
+            state
+                .with_tree_at(second, |tree, _| {
+                    assert_eq!(tree.name(tree.root()), "second");
+                    Ok(())
+                })
+                .unwrap();
         }
 
-        /// The colours have to be the ones the finished map will use, or the
-        /// picture changes character the moment the scan lands.
+        /// A scan nobody watched fills a tab of its own, and the tree that tab
+        /// was showing is still here.
+        ///
+        /// This is the shape of Rescan: it deliberately does *not* poll the
+        /// running view — the map on screen stays readable while the new one is
+        /// built — so nothing ever tags a tree with this scan's id, and the
+        /// finished scan cannot adopt anything. Two trees, one tab. Which is
+        /// correct on this side and is exactly why the window has to free the
+        /// one it stops showing; see `receive` in `src/App.tsx`.
         #[test]
-        fn a_tile_carries_the_category_the_finished_map_would_give_it() {
-            let mut file = entry("holiday.mp4", 900);
-            file.is_dir = false;
-            let tiles = live_layout(&[file], 400.0, 300.0);
-            assert_eq!(tiles[0].category, Category::Video as u8);
-            assert!(!tiles[0].is_dir);
+        fn a_scan_that_was_never_watched_leaves_the_previous_tree_behind() {
+            let state = AppState::default();
+            let before = state
+                .set(one_node_tree("before"), live("/same"), None, None)
+                .unwrap();
+
+            let scan = state.begin_scan(Arc::new(ScanProgress::default())).unwrap();
+            let after = state
+                .set_scanned(
+                    one_node_tree("after"),
+                    live("/same"),
+                    None,
+                    ScanStats::default(),
+                    scan,
+                )
+                .unwrap();
+
+            assert_ne!(before, after);
+            assert_eq!(
+                state.open_count().unwrap(),
+                2,
+                "nothing here can know the window has stopped showing the first"
+            );
+            state.with_tree_at(before, |_, _| Ok(())).unwrap();
         }
 
-        /// Every tile has to sit inside the area it was given; one placed
-        /// outside is drawn off the edge of the canvas and simply vanishes.
+        /// The one that matters for memory: a tab that is closed has to give
+        /// its ninety megabytes back, and nothing else ever will.
         #[test]
-        fn every_tile_lands_inside_the_drawing_area() {
-            let found: Vec<LiveEntry> = (0..12)
-                .map(|i| entry(&format!("d{i}"), (i as u64 + 1) * 137))
-                .collect();
-            let tiles = live_layout(&found, 640.0, 480.0);
-            assert!(!tiles.is_empty());
-            for tile in &tiles {
-                assert!(tile.x >= -0.01 && tile.y >= -0.01, "{tile:?}");
-                assert!(tile.x + tile.w <= 640.01, "{tile:?}");
-                assert!(tile.y + tile.h <= 480.01, "{tile:?}");
-            }
+        fn closing_frees_that_tree_and_only_that_one() {
+            let state = AppState::default();
+            let kept = state
+                .set(one_node_tree("kept"), live("/kept"), None, None)
+                .unwrap();
+            let closed = state
+                .set(one_node_tree("closed"), live("/closed"), None, None)
+                .unwrap();
+
+            assert!(state.close(closed).unwrap(), "it was there to close");
+            assert_eq!(state.open_count().unwrap(), 1);
+            assert!(
+                !state.close(closed).unwrap(),
+                "closing twice is an answer, not an error — a tab can be shut \
+                 while its own scan is still landing"
+            );
+
+            let err = state.with_tree_at(closed, |_, _| Ok(())).unwrap_err();
+            assert_eq!(err.code, STALE_GENERATION);
+            state.with_tree_at(kept, |_, _| Ok(())).unwrap();
+        }
+
+        /// With every tab closed the window is back where it started, and the
+        /// message for that is not the one for a stale id.
+        #[test]
+        fn the_last_close_reads_as_nothing_open() {
+            let state = AppState::default();
+            let only = state
+                .set(one_node_tree("only"), live("/only"), None, None)
+                .unwrap();
+            state.close(only).unwrap();
+
+            let err = state.with_tree_at(only, |_, _| Ok(())).unwrap_err();
+            assert_eq!(err.code, "nothing_open");
+        }
+
+        /// A scan lands in its own tree. Two tabs scanning one after the other
+        /// must not have the second's result overwrite the first's tree.
+        #[test]
+        fn a_finished_scan_does_not_replace_another_tab() {
+            let state = AppState::default();
+            let older = state
+                .set(one_node_tree("older"), live("/older"), None, None)
+                .unwrap();
+
+            let scan = state.begin_scan(Arc::new(ScanProgress::default())).unwrap();
+            let fresh = state
+                .set_scanned(
+                    one_node_tree("fresh"),
+                    live("/fresh"),
+                    None,
+                    ScanStats::default(),
+                    scan,
+                )
+                .unwrap();
+
+            assert_ne!(older, fresh);
+            assert_eq!(state.open_count().unwrap(), 2);
+            state
+                .with_tree_at(older, |tree, _| {
+                    assert_eq!(tree.name(tree.root()), "older", "the other tab is intact");
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        fn live(root: &str) -> Source {
+            Source::Live { root: root.into() }
+        }
+    }
+
+    /// Showing a scan while it runs. What is tested here is not the tree — the
+    /// scanner's own tests cover that — but the two rules the window depends on
+    /// and cannot check for itself.
+    mod running_view {
+        use super::*;
+
+        fn state_with_scan() -> (AppState, u64) {
+            let state = AppState::default();
+            let scan = state.begin_scan(Arc::new(ScanProgress::default())).unwrap();
+            (state, scan)
+        }
+
+        /// The reason a reader keeps their place. A new generation per refresh
+        /// would invalidate every id the window holds, several times a scan.
+        #[test]
+        fn refreshing_one_scan_keeps_its_generation() {
+            let (state, scan) = state_with_scan();
+            let first = state
+                .set_partial(one_node_tree("root"), None, scan)
+                .unwrap()
+                .expect("the scan is running");
+            let second = state
+                .set_partial(one_node_tree("root"), None, scan)
+                .unwrap()
+                .expect("still running");
+            assert_eq!(first, second);
+
+            // And the finished scan is the same handover, so the map does not
+            // jump at the moment it lands.
+            let settled = state
+                .set_scanned(
+                    one_node_tree("root"),
+                    live("/x"),
+                    None,
+                    ScanStats::default(),
+                    scan,
+                )
+                .unwrap();
+            assert_eq!(settled, first);
+        }
+
+        /// A different scan is a different tree: its ids come from another
+        /// arena and mean other entries.
+        #[test]
+        fn another_scan_is_a_new_generation() {
+            let (state, first_scan) = state_with_scan();
+            let first = state
+                .set_partial(one_node_tree("root"), None, first_scan)
+                .unwrap()
+                .unwrap();
+            let second_scan = state.begin_scan(Arc::new(ScanProgress::default())).unwrap();
+            let second = state
+                .set_partial(one_node_tree("root"), None, second_scan)
+                .unwrap()
+                .unwrap();
+            assert_ne!(first, second);
+        }
+
+        /// The race this is here for: a refresh asked for before the scan ended
+        /// and answered after. Without the refusal it would put a half-read
+        /// tree back over the finished one, and nothing would look wrong.
+        #[test]
+        fn a_refresh_that_arrives_after_the_scan_is_refused() {
+            let (state, scan) = state_with_scan();
+            state
+                .set_partial(one_node_tree("root"), None, scan)
+                .unwrap();
+            let generation = state
+                .set_scanned(
+                    one_node_tree("root"),
+                    live("/x"),
+                    None,
+                    ScanStats::default(),
+                    scan,
+                )
+                .unwrap();
+            state.end_scan(scan);
+
+            assert!(
+                state
+                    .set_partial(one_node_tree("late"), None, scan)
+                    .unwrap()
+                    .is_none(),
+                "the late refresh must be refused, not installed"
+            );
+            state
+                .with_tree_at(generation, |tree, source| {
+                    assert!(source.is_live(), "the finished scan is still open");
+                    assert_eq!(tree.name(tree.root()), "root");
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(state.generation.load(Ordering::SeqCst), generation);
+        }
+
+        /// A view of a running scan may be read and not acted on, so it must
+        /// say so on the wire as well as in the guards.
+        #[test]
+        fn a_running_scans_view_cannot_be_modified() {
+            let (state, scan) = state_with_scan();
+            let generation = state
+                .set_partial(one_node_tree("root"), None, scan)
+                .unwrap()
+                .unwrap();
+            let view = state
+                .with_tree_at(generation, |tree, source| {
+                    Ok(opened(
+                        tree,
+                        source,
+                        0,
+                        Vec::new(),
+                        generation,
+                        None,
+                        SizeBasis::OnDisk,
+                    ))
+                })
+                .unwrap();
+            assert!(!view.can_modify);
+            assert!(matches!(view.source, Source::Scanning { .. }));
         }
     }
 
@@ -2740,6 +3307,7 @@ mod tests {
                 capacity: None,
                 bands: std::sync::OnceLock::new(),
                 stats,
+                partial_of: None,
             }
         }
 
@@ -2765,6 +3333,21 @@ mod tests {
             // It is already a row in a database; saving it would duplicate it
             // under a new id and a new timestamp.
             let state = loaded(snapshot_source(), &[], Some(ScanStats::default()));
+            let err = savable(&state).unwrap_err();
+            assert_eq!(err.code, "already_a_snapshot");
+        }
+
+        /// Core invariant 5, at this end of the wire: a partial tree looks
+        /// complete and reports a total that is simply wrong, so it may be read
+        /// and never stored. The window shows one throughout every scan now,
+        /// which is what makes this worth a test rather than an argument.
+        #[test]
+        fn a_scan_that_is_still_running_is_not_stored() {
+            let state = loaded(
+                Source::Scanning { root: "/x".into() },
+                &[],
+                Some(ScanStats::default()),
+            );
             let err = savable(&state).unwrap_err();
             assert_eq!(err.code, "already_a_snapshot");
         }
@@ -2843,16 +3426,22 @@ mod tests {
         assert!(second > first, "{second} should follow {first}");
     }
 
-    /// The whole point: an id obtained from an earlier tree must be refused
+    /// The whole point: an id obtained from a tree that is gone must be refused
     /// rather than silently addressing a different entry.
+    ///
+    /// **What ends a generation is its tree being closed, not another one being
+    /// opened.** This test asserted the opposite until tabs existed, and it was
+    /// right to: there was one slot, so opening a second tree destroyed the
+    /// first. The guard is unchanged — an id is still only meaningful with the
+    /// generation it came from — but what makes an id stale is now a tab being
+    /// shut rather than any scan anywhere finishing.
     #[test]
-    fn a_request_carrying_an_old_generation_is_refused() {
+    fn a_request_carrying_a_closed_generation_is_refused() {
         let state = AppState::default();
         let old = state
             .set(one_node_tree("a"), live("/a"), None, None)
             .unwrap();
 
-        // Still current: it works.
         assert_eq!(
             state
                 .with_tree_at(old, |tree, _| Ok(tree.name(0).to_string()))
@@ -2860,15 +3449,23 @@ mod tests {
             "a"
         );
 
-        // A new scan replaces the tree.
+        // Another scan opens beside it and changes nothing for the first.
         let new = state
             .set(one_node_tree("b"), live("/b"), None, None)
             .unwrap();
+        assert_eq!(
+            state
+                .with_tree_at(old, |tree, _| Ok(tree.name(0).to_string()))
+                .unwrap(),
+            "a",
+            "a second tab must not invalidate the ids the first one is holding"
+        );
 
+        state.close(old).unwrap();
         let err = state.with_tree_at(old, |_, _| Ok(())).unwrap_err();
         assert_eq!(err.code, STALE_GENERATION);
 
-        // And the current one still works, so the guard is not just refusing
+        // And the other one still works, so the guard is not just refusing
         // everything.
         assert_eq!(
             state
@@ -2933,6 +3530,11 @@ mod tests {
             .set(one_node_tree("b"), live("/b"), None, None)
             .unwrap();
 
+        // Open beside another tree, so still editable — a delete in one tab is
+        // not affected by what is open in the next.
+        assert!(state.edit_tree_at(old, |_| Ok(())).is_ok());
+
+        state.close(old).unwrap();
         assert_eq!(
             state.edit_tree_at(old, |_| Ok(())).unwrap_err().code,
             STALE_GENERATION

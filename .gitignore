@@ -11,3 +11,6 @@ tasks/
 
 # Playwright cache directory
 .playwright-mcp/
+
+# Temporary local core patch, never committed (see the file itself).
+src-tauri/.cargo/

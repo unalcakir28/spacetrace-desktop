@@ -136,13 +136,14 @@ the snapshot database, because a snapshot is something you chose to keep.
 
 On every supported platform the Trash is on the same filesystem, so the folder
 gets smaller and the disk does not. The confirmation and the notice both say so,
-and the free-space readout in the toolbar can be clicked to re-measure once you
+and the free-space readout in the top bar can be clicked to re-measure once you
 have emptied it. Reporting reclaimed space that has not been reclaimed is the
 kind of wrong number that loses a disk tool its credibility.
 
 ## Storing a scan
 
-`Save snapshot…` in the toolbar writes the open scan to the snapshot database —
+`Save snapshot…`, under the ⋯ beside the open path, writes the open scan to the
+snapshot database —
 the same file the CLI uses, so a snapshot taken here is visible to
 `spacetrace snapshots` and vice versa. Until this existed the desktop could
 only *read* snapshots, and the list's empty state said so in a way that gave no
@@ -196,9 +197,11 @@ everything genuinely large becomes a sliver; the map stops working as a map.
 
 Four rules follow, and each is easy to break by accident:
 
-- **The basis is always visible.** It is a labelled control in the toolbar, not
-  a buried setting, and the source line prints both totals with the active one
-  in bold. A figure whose meaning is hidden is the thing this app must not do.
+- **The basis is always visible, and it is the totals themselves.** The source
+  line prints both, the active one bright with an accent rule under it, and
+  clicking either one switches to it. It was a segmented control in the toolbar
+  until the two said the same thing twice; a figure whose meaning is hidden, or
+  in a buried setting, is the thing this app must not do.
 - **An ordering and the figures beside it share a basis.** `children_by` in the
   core takes the measure, so "biggest first" means the same thing as the number
   printed on the row.
@@ -286,6 +289,8 @@ there and the *geometry* in the app. Nothing in the build references it.
 src/                    React frontend
 ├── api.ts              typed wrappers over the Tauri commands
 ├── App.tsx             shell: toolbar, progress strip, three panes
+├── tabs.ts             one scan per tab, and the tree each one is holding open
+├── TabBar.tsx          the row of open scans, home first and never closed
 ├── Treemap.tsx         canvas renderer, hit-testing, labels
 ├── Sunburst.tsx        the same tree as rings: one per level, angle = share
 ├── FolderTree.tsx      folder panel: guides, share bars, selection, in-place edits
@@ -298,7 +303,8 @@ src/                    React frontend
 ├── Toasts.tsx          what just happened, said once
 ├── Dialogs.tsx         scan / snapshots / remote / diff
 ├── Timeline.tsx        one folder's history: the line, and what each step cost
-├── LiveMap.tsx         what a running scan has found, while it is still running
+├── links.ts            handing an address to the browser, and saying when it refused
+├── nativeMenu.ts       switching off the webview's right-click menu, except in text
 ├── age.ts              the heat map's palette and the words for its bands
 ├── basis.ts            on disk vs logical: the one place the choice is defined
 ├── categories.ts       the one place category colours are read from

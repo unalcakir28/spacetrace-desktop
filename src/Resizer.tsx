@@ -18,9 +18,28 @@ export interface PaneWidths {
   inspector: number;
 }
 
-export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 320, inspector: 276 };
+/**
+ * What the panes are before anyone drags them.
+ *
+ * The folder list was 320, and over half of that was the figures column: at
+ * that width a row had 102px for its name, and the panel looked wide while
+ * being cramped where it counts. The column was tightened (theme.css) and this
+ * came down with it — 288 gives a name 86px before the row starts to scroll,
+ * so the panel is narrower and a name is barely worse off.
+ */
+export const DEFAULT_WIDTHS: PaneWidths = { sidebar: 288, inspector: 276 };
 
-/** Enough for the numbers column plus a name; enough that the map survives. */
+/**
+ * What a pane may be dragged to, in its own right.
+ *
+ * These are about the pane: enough room for the numbers column plus a name, and
+ * not so much that it stops being a panel. **They are not what keeps the map
+ * alive** — they cannot be, because they know nothing about the window: 900 and
+ * 560 fit side by side only above 1470px, and under that the map used to be
+ * squeezed to nothing and then painted over the inspector. The guarantee lives
+ * in `.workspace` in theme.css, where the map column has a floor and the two
+ * side panes give way to it.
+ */
 const LIMITS = {
   sidebar: { min: 200, max: 900 },
   inspector: { min: 210, max: 560 },
@@ -29,7 +48,16 @@ const LIMITS = {
 /** How much an arrow key moves it. Shift multiplies by ten, as elsewhere. */
 const STEP = 16;
 
-const STORAGE_KEY = "spacetrace.panes";
+/**
+ * Versioned, and the version moved with the default above.
+ *
+ * A remembered width is the reader's own choice and is not normally overridden
+ * — but these widths now answer to a layout that did not exist when they were
+ * stored: the map has a floor and the panes give way to it. Reading them once
+ * more against the old defaults would leave the new one invisible to everyone
+ * who has ever touched a divider. One reset, at the version that changed it.
+ */
+const STORAGE_KEY = "spacetrace.panes.2";
 
 export function usePaneWidths(): [PaneWidths, (next: PaneWidths) => void] {
   const [widths, setWidths] = useState<PaneWidths>(() => load());

@@ -87,6 +87,17 @@
   --row: 23px;
   --rail: 15px;
 
+  /* Below this the map stops being a map: the rectangles are too small to
+     compare, which is the only thing it is for. The side panes yield first.
+
+     This is the floor that keeps the layout *intact*, not the one that makes
+     it worth using — those are different numbers. The window's own minimum
+     (`minWidth`/`minHeight` in tauri.conf.json, 1080x700) is the second: at it
+     the map is 506x500 with both panes at their defaults, which is larger than
+     either of them. At the 900x600 it used to be, the map was 326x400 and the
+     window was legal but not much use. */
+  --map-min: 260px;
+
   color-scheme: dark;
 }
 
@@ -226,17 +237,42 @@ button:focus-visible,
 
 /* ----------------------------------------------------------------- app shell */
 
+/* A column, not a grid with a row count.
+   
+   It was `grid-template-rows: auto auto auto 1fr`, which is a promise about how
+   many strips exist above the content — and three of them are conditional: the
+   update notice, the line saying what is open, the progress strip. Adding the
+   tab bar made five, the content fell past the `1fr` into an implicit row and
+   stopped filling the window. A column cannot be miscounted: whatever is above
+   takes the height it needs and the content takes the rest. The same mistake,
+   and the same fix, as `.map-area`. */
 .app {
-  display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
+.app > .workspace,
+.app > .welcome,
+.app > .starting {
+  flex: 1;
+  /* Without it the content cannot be shorter than what is inside it, which is
+     how a flex child overflows its parent instead of scrolling. */
+  min-height: 0;
+}
+
+/* The app and its sources, and nothing else.
+   
+   This row used to hold fourteen controls and wrapped onto three lines at the
+   width the window actually opens at, which pushed the map — the thing the app
+   is for — below the fold. What moved out did not move into a menu: each
+   control went to the thing it changes, so the row is short because it has one
+   subject rather than because anything was hidden. */
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
@@ -245,33 +281,168 @@ button:focus-visible,
   flex: 1;
 }
 
+/* The wordmark carries no tagline any more. "Disk usage over time" is a claim
+   worth making to somebody deciding whether to install this; to somebody who
+   has it open it is two words of chrome next to the button they came for. It
+   still greets them on the welcome screen. */
 .brand {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-right: 6px;
-}
-
-.brand strong {
   font-weight: 600;
+  font-size: 13px;
   letter-spacing: -0.01em;
+  color: var(--text);
+  margin-right: 2px;
+  flex: none;
 }
 
-.brand span {
-  color: var(--text-faint);
-  font-size: 11px;
+/* One action, with its rarer siblings folded behind the caret. Drawn as a
+   single object — one border, one radius, a hairline between the halves — so
+   it reads as "this button, and more like it" rather than as two buttons that
+   happen to touch. */
+.split {
+  display: flex;
+  flex: none;
 }
 
+.split button {
+  border-radius: 0;
+}
+
+.split button:first-child {
+  border-top-left-radius: var(--r-control);
+  border-bottom-left-radius: var(--r-control);
+}
+
+.split .caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+  margin-left: -1px;
+  border-top-right-radius: var(--r-control);
+  border-bottom-right-radius: var(--r-control);
+  color: var(--text-dim);
+}
+
+.split .caret:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* What is open, what it comes to, and what can be done to it — the line every
+   figure in the window is read against. */
 .source-line {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px;
+  padding: 5px 12px;
   background: #0b0f1c;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-dim);
-  min-height: 33px;
+  min-height: 34px;
+}
+
+.source-line .spacer {
+  flex: 1;
+}
+
+/* The path is the answer to "what am I looking at", so it takes the window's
+   full text colour while everything measured about it stays dim.
+   
+   Truncated at the end, plainly. Clipping the *head* would be the better
+   reading — the tail of a path identifies it — but the `direction: rtl` trick
+   that does it treats the leading separator as trailing punctuation and
+   renders `/Users/unalcakir` as `Users/unalcakir/`: a path that is not the
+   path. The whole of it is on the tooltip instead. */
+.source-line .root {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+/* Three commands live behind this, and they were three buttons in the toolbar
+   before — so it keeps a resting border. An overflow control that only appears
+   on hover is one that people who do not hover never find. */
+.source-line .more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 22px;
+  padding: 0;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.source-line .more:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* The one place this window spends any boldness.
+   
+   Both totals are printed either way — a reader who sees only the active
+   measure cannot tell a sparse disk from a full one — so the inactive figure
+   was already on screen, just as a label. Making it clickable turns it into
+   the control and deletes a segmented control that said the same thing twice.
+   The chosen one is marked the way selection is marked everywhere else in this
+   app: brightness and an accent rule, no hue, because every hue belongs to a
+   file category. */
+.totals {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  gap: 2px;
+}
+
+.totals button {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--r-chip) var(--r-chip) 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.totals button:hover:not(:disabled) {
+  background: var(--panel);
+  color: var(--text-dim);
+}
+
+.totals button.on {
+  color: var(--text-dim);
+  border-bottom-color: var(--accent);
+}
+
+.totals button.on .num {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.totals button:disabled {
+  opacity: 0.6;
+}
+
+/* Counted, not measured: a different kind of fact from the totals beside it,
+   and kept quieter so the eye does not have to sort four numbers into two
+   pairs by reading them. */
+.source-line .counts {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex: none;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.source-line .counts .num + .num {
+  margin-left: 7px;
 }
 
 .badge {
@@ -323,11 +494,16 @@ button:focus-visible,
 /* Free out of total, never "percent full": on APFS, btrfs and thin LVM space
    is shared between volumes, so `total - free` counts what the siblings are
    using and disagrees with `df` for the same mount. */
-/* The measure everything is drawn from. A segmented control rather than a
-   toggle: both options are real answers, so neither can be the unchecked
-   state of the other. It spends no category hue — the accent marks the choice,
-   the way selection does. */
-.basis {
+/* Two named alternatives, both of them real answers — so a segmented control
+   rather than a toggle: neither option can be the unchecked state of the
+   other. It spends no category hue; the accent marks the choice, the way
+   selection does everywhere in this window.
+   
+   It used to be called `.basis` and to be the measure switch. The measure is
+   the pair of totals on the source line now, and the name outlived it: what
+   was left was a class named after one of its three users that also collided
+   with a plain text span in the progress strip. */
+.segmented {
   display: flex;
   flex: none;
   border: 1px solid var(--border);
@@ -336,7 +512,15 @@ button:focus-visible,
   overflow: hidden;
 }
 
-.basis button {
+/* Sitting inside another row, so it carries no surface of its own: the row it
+   is in already is one. */
+.legend .segmented,
+.crumbs .segmented {
+  margin-right: 2px;
+  background: transparent;
+}
+
+.segmented button {
   padding: 3px 10px;
   border: 0;
   border-radius: 0;
@@ -346,22 +530,22 @@ button:focus-visible,
   white-space: nowrap;
 }
 
-.basis button + button {
+.segmented button + button {
   border-left: 1px solid var(--border);
 }
 
-.basis button:hover:not(:disabled) {
+.segmented button:hover:not(:disabled) {
   background: var(--panel-raised);
   color: var(--text);
 }
 
-.basis button.on {
+.segmented button.on {
   background: var(--panel-high);
   color: var(--text);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-.basis button:disabled {
+.segmented button:disabled {
   opacity: 0.5;
 }
 
@@ -507,7 +691,16 @@ button:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
+/* A label, not a control — it says which measure the figures in this strip are
+   in. Written out in full because it used to inherit its box from the class
+   above by accident, and that class no longer matches it. */
 .progress .basis {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  padding: 0 6px;
   color: var(--text-faint);
   font-size: 11px;
 }
@@ -519,8 +712,22 @@ button:focus-visible,
    cannot know. See Resizer.tsx. */
 .workspace {
   display: grid;
+  /* The two side panes are what they were asked to be *if the window can pay
+     for it*, and the map has a floor.
+     
+     Their widths used to be exact, and clamped only against themselves — the
+     folder panel could be 900 and the inspector 560, which is 1470px of a
+     window that is often 1400. The map then went to nothing while the comment
+     on those limits said "enough that the map survives". Writing the rule here
+     rather than in the drag handler is what makes it true at every width: the
+     panes give way as the window narrows and come back at the width the reader
+     chose when it widens, without anything having to recompute them. */
   grid-template-columns:
-    var(--w-sidebar, 320px) 5px 1fr 5px var(--w-inspector, 276px);
+    minmax(0, var(--w-sidebar, 320px))
+    5px
+    minmax(var(--map-min), 1fr)
+    5px
+    minmax(0, var(--w-inspector, 276px));
   min-height: 0;
 }
 
@@ -676,19 +883,51 @@ button:focus-visible,
 
 /* --------------------------------------------------------------- breadcrumbs */
 
+/* The map's own header: where you are in it, and what shape it is drawn in.
+   The shape belongs here rather than in the toolbar because it changes what
+   the picture claims — area in one, angle in the other — and a reader who does
+   not know which they are looking at will read one as the other. */
 .crumbs {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  overflow-x: auto;
   gap: 2px;
-  padding: 6px 10px;
+  padding: 5px 8px 5px 10px;
   background: #0b0f1c;
   border-bottom: 1px solid var(--border);
-  scrollbar-width: none;
 }
 
-.crumbs::-webkit-scrollbar {
+/* The tip is also the row's elastic space, so it gives way first: at a wide
+   window it fills the gap, at a narrow one it ellipsises down to nothing while
+   the path and the view switch keep their width. A spacer of its own would
+   have made the row shrink the path instead. */
+.crumbs .hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  padding: 0 10px;
+}
+
+.crumbs .trail {
+  flex: 0 1 auto;
+}
+
+/* The trail scrolls, the row does not: with the row scrolling, a deep path
+   pushed the view switch off the end of it. */
+.crumbs .trail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+
+.crumbs .trail::-webkit-scrollbar {
   display: none;
 }
 
@@ -724,10 +963,35 @@ button:focus-visible,
 
 /* ------------------------------------------------------------------ treemap */
 
+/* A column of fixed rows with the picture taking whatever is left.
+   
+   Flex rather than grid, and that is the fix for a real bug: as a grid with
+   `auto 1fr auto` the stretchy row was the *second child*, and the error strip
+   is a second child that only exists sometimes. The moment anything went wrong
+   the error box became the row that grew and the canvas collapsed to whatever
+   height it had last been given — the map disappearing exactly when the window
+   was trying to explain why. Here the canvas is the only thing that grows, and
+   it stays that way however many strips are added above it.
+   
+   `min-width: 0` on the children for the reason the column used to need
+   `minmax(0, …)`: without it the widest row (the key) is a floor, and once the
+   folder panel was dragged wide enough to squeeze this panel below that floor,
+   the rows kept their width and painted over the inspector. */
 .map-area {
   position: relative;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.map-area > * {
+  flex: none;
+  min-width: 0;
+}
+
+.map-area > .canvas-wrap {
+  flex: 1;
   min-height: 0;
 }
 
@@ -784,12 +1048,17 @@ button:focus-visible,
   gap: 6px;
 }
 
+/* The key, with the choice of what it is a key *to* at its head. The colour
+   mode belongs here and nowhere else: this row is the only thing on screen
+   that says what the colours mean, and a control for it two panels away is a
+   map whose colours mean something other than what the reader assumes — the
+   failure this app is built to avoid. */
 .legend {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 3px 12px;
-  padding: 7px 12px;
+  padding: 6px 12px;
   background: var(--panel);
   border-top: 1px solid var(--border);
   font-size: 11px;
@@ -995,15 +1264,20 @@ button:focus-visible,
    Sticky rather than in the flow, because the panel scrolls sideways for deep
    names and the size is the second thing anyone reads. It inherits the row's
    background so the names pass behind it rather than through it. */
+/* Three figures and the whitespace around them used to be 171px of a 320px
+   panel — more than half of it, for a column that answers "how big" while the
+   name answers "which one". Tightened by 16px, all of it from gaps and the
+   bar's length rather than from the figures themselves: nothing here says less
+   than it did. */
 .tree-row .figures {
   position: sticky;
   right: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   flex: none;
   margin-left: auto;
-  padding: 0 10px 0 12px;
+  padding: 0 8px 0 10px;
   background: inherit;
 }
 
@@ -1012,7 +1286,7 @@ button:focus-visible,
    point of sorting by size — and an underline could not have survived the
    panel scrolling sideways. */
 .tree-row .minibar {
-  width: 42px;
+  width: 34px;
   height: 4px;
   border-radius: 2px;
   background: var(--border);
@@ -1786,50 +2060,6 @@ th.right {
   stroke-width: 3;
 }
 
-/* ------------------------------------------------------- live scan preview */
-
-/* Fills the space the welcome screen would have used, so a first scan of a
-   large disk has something to watch instead of a blank panel. */
-.live-map {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0 12px 12px;
-  gap: 8px;
-}
-
-.live-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-top: 10px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-/* The same live dot the scan badge uses, so "this is still moving" reads the
-   same way in both places. */
-.live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: none;
-  animation: live-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-/* Respect a reader who has asked for less movement: the map itself already
-   changes on its own, and a pulsing dot beside it is decoration. */
-@media (prefers-reduced-motion: reduce) {
-  .live-dot { animation: none; }
-}
-
 /* ------------------------------------------------------------- ring view */
 
 /* The rings are centred in whatever space the panel has, so the wrapper
@@ -1860,4 +2090,247 @@ th.right {
   top: 10px;
   left: 12px;
   right: 12px;
+}
+
+/* ---------------------------------------------------------------- tab bar */
+
+/* One open scan per tab, and home on the left.
+   
+   Shaped like a browser's on purpose: it is the one tabbed interface everybody
+   has already learned, and a disk analyser has nothing to teach about tabs. The
+   current tab is joined to the content below it — no bottom border, and the
+   same background as the panel under it — because that seam is what says which
+   of them the window is showing. */
+.tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 220px;
+  padding: 7px 8px 7px 11px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--r-control) var(--r-control) 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: default;
+  user-select: none;
+}
+
+.tab:hover {
+  background: rgba(139, 155, 255, 0.07);
+  color: var(--text);
+}
+
+.tab.current {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+  /* Covers the bar's own bottom border, which is the whole trick. */
+  margin-bottom: -1px;
+  padding-bottom: 8px;
+}
+
+/* Home is a fixed anchor, not one tab among many: no close button and no name
+   long enough to push the others off. */
+.tab.home {
+  flex: none;
+}
+
+.tab .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.tab.current .dot {
+  background: var(--text-faint);
+}
+
+/* A scan that is still filling in. The same colour the badge on the line below
+   uses, so the two are obviously about the same thing. */
+.tab .dot.live {
+  background: var(--accent);
+  animation: tab-live 1.6s ease-in-out infinite;
+}
+
+@keyframes tab-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tab .shut {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-chip);
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+}
+
+.tab .shut:hover {
+  background: rgba(226, 86, 79, 0.22);
+  opacity: 1;
+}
+
+.newtab {
+  flex: none;
+  align-self: center;
+  width: 24px;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-control);
+  background: none;
+  color: var(--text-faint);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.newtab:hover {
+  background: rgba(139, 155, 255, 0.07);
+  color: var(--text);
+}
+
+/* A tab whose scan has been asked for but has not produced a tree yet. The
+   opening screen would be wrong here: it offers to start a scan, inside a tab
+   that is already running one. */
+.starting {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  color: var(--text-faint);
+}
+
+.starting .pulse {
+  width: 38px;
+  height: 38px;
+  border: 2px solid var(--border);
+  border-top-color: var(--text-faint);
+  border-radius: 50%;
+  animation: starting-spin 1.1s linear infinite;
+}
+
+@keyframes starting-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab .dot.live,
+  .starting .pulse {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------- this scan's commands */
+
+/* On the line that says what is open. Quiet, because they sit beside the path
+   and the path is what the line is for — but named, which a `⋯` is not. */
+.scan-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scan-actions button {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.scan-actions button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.scan-actions button:disabled {
+  opacity: 0.4;
+}
+
+/* ------------------------------------------------------------------ disks */
+
+/* Whole filesystems, above the folder shortcuts. "What is on this drive" is the
+   question this app is named after and it had no button anywhere: the only way
+   to ask it was to know that a folder chooser accepts `/`. */
+.disks {
+  margin: 22px 0 6px;
+}
+
+.disks h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Said once for the section. On every row it was the same sentence three times
+   over, which reads as decoration rather than as a warning. */
+.disks h2 em {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+/* Square-ish, like the plate it stands for, where a folder is a tab shape. */
+.target .drive {
+  width: 15px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.target.disk .icon {
+  color: var(--age-2);
+}
+
+/* The address of a link the browser refused, shown so it can be copied out. */
+.refused {
+  color: var(--text-faint);
+  font-size: 11px;
+  user-select: text;
 }

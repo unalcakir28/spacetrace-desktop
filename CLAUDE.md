@@ -116,7 +116,7 @@ So **the only pin is `src-tauri/Cargo.lock`**. The consequences:
 2. **No command blocks the main thread.** A `#[tauri::command]` that is not
    `async` runs on the UI thread. The rule: `async` + `spawn_blocking` for the
    filesystem and SQLite; `#[tauri::command(async)]` when a borrowed `State` is
-   needed (15 of 34 commands). The ones that stay synchronous are the ones that
+   needed (15 of 30 commands). The ones that stay synchronous are the ones that
    do no work: `cancel_scan`, `default_database`, `build_info`,
    `full_disk_access`, `open_privacy_settings`, `changelog`. A new command that
    touches the filesystem, the database or the network does not join that list.
@@ -124,9 +124,41 @@ So **the only pin is `src-tauri/Cargo.lock`**. The consequences:
    stale id addresses a **different** entry in a changed tree.
    `Tree::remove_subtree` does not cut, it zeroes — ids survive an in-place
    edit, and `Loaded.hidden` holds what went away.
-4. **`AppState.current` is deliberately an `RwLock`, not a `Mutex`.** Writing a
-   snapshot walks the whole tree (seconds); under a mutex every read queues up
-   and the window freezes.
+
+   **What makes an id stale is its tree being closed, not another scan
+   finishing.** Until tabs existed there was one slot, so any new tree
+   destroyed the previous one and the two were the same statement. Now a
+   generation is a key into `AppState.trees` and stays valid for as long as its
+   tab is open. `a_request_carrying_a_closed_generation_is_refused` is the test
+   that says so, and it asserted the opposite until 18 September 2026.
+4. **`AppState.trees` is a `HashMap<u64, Loaded>` behind an `RwLock`, not a
+   `Mutex`, and not a single slot.** One tree per tab, keyed by generation.
+   Two consequences worth knowing before touching it:
+
+   - **`close_tree` is the only thing that frees a tree**, and a tree is about
+     98 MB for 915,102 entries (72 bytes a node plus its name, measured). A
+     tree the window stops showing without that call is memory it can no longer
+     reach and will never release, which is why both calls live in
+     `src/tabs.ts` and not at the call sites. There are two, because a tree
+     stops being shown in two ways: the tab goes (`close`) or the tab is handed
+     a different tree (`adopt`). The second has no visible moment and was
+     missed — a Rescan is a fresh walk and so a fresh generation, and the tab's
+     previous ~98 MB stayed in the map with nothing left pointing at it.
+     `adopt` also frees a tree whose tab has already been closed, which is what
+     happens when a scan is left to land after its tab is gone.
+
+     The Rust side cannot help here: it has no concept of a tab, by design.
+     `close` additionally cancels the scan that was filling the tab, since
+     `cancel_scan` stops whatever is running and `App`'s `scanTab` ref is the
+     only record of whose that is.
+   - The `RwLock` is unchanged and for the same reason: writing a snapshot
+     walks the whole tree (seconds), and under a mutex every read would queue
+     behind it and the window would freeze.
+
+   **Nothing on the Rust side knows what a tab is.** It holds trees by name;
+   the window decides which one is in front. That is why tabs needed no new
+   argument on any command except `save_snapshot`, which had been saying "the
+   open tree" and now has to say which.
 5. **Plugin versions have to match on major.minor** — the Rust crate and the
    npm package. Only **`tauri build`** catches a mismatch, so CI went green and
    the release blew up on three platforms. That is why `yarn check:plugins`
@@ -144,20 +176,31 @@ So **the only pin is `src-tauri/Cargo.lock`**. The consequences:
    use although the code never asked for it. The CSP is written out explicitly
    too (`tauri.conf.json`).
 
+   **`opener:allow-open-url` carries a scope and is useless without one.** The
+   bare permission enables the command and allows no address through, so every
+   link in the About panel and the update strip failed silently from the day
+   they were written — silently because each call site was `void openUrl(…)`,
+   which discards the rejection. All three now go through `openExternal` in
+   `src/links.ts`, which returns the answer, and all three show the address they
+   could not open so it can be copied. Adding a link means adding its URL to
+   that scope — the site is a pattern because the changelog page carries a
+   locale, the repository is spelled out, because an org-wide wildcard grants
+   every other repository for nothing.
+
 ## Drawing: canvas, LOD on the server
 
-`Treemap`, `Sunburst` and `LiveMap` are canvas, not DOM; DPR scaling and
-`requestAnimationFrame` are done by hand. **No web workers.** The fourth view,
+`Treemap` and `Sunburst` are canvas, not DOM; DPR scaling and
+`requestAnimationFrame` are done by hand. **No web workers.** The third view,
 `Timeline`, is an exception — SVG, because it is a single line and canvas would
 win nothing.
 
 - **The tree never crosses into JS.** `treemap` (and `rings`) return
   **parallel flat number arrays** in draw order (parent before child), one
   array per field — about a third as much JSON as an array of objects, and with
-  no strings in it. **`live_tiles` is outside this rule**: `LiveTile` carries
-  its own `name`, because the live map is already showing names while the scan
-  runs. Labels are requested separately in the treemap, and only for tiles that
-  are **not smaller** than `56×15` pixels (`>=`, so exactly 56×15 does get a
+  no strings in it. There is no exception to this any more: `live_tiles`, which
+  carried a name per tile, is gone along with the rest of the preview it fed.
+  Labels are requested separately in the treemap, and only for tiles that are
+  **not smaller** than `56×15` pixels (`>=`, so exactly 56×15 does get a
   label).
 - **LOD is on the server side**: `min_area` (default 6.0, at least 0.5),
   `padding`, optional `max_depth`.
@@ -171,11 +214,10 @@ win nothing.
 - `basis` (`OnDisk`/`Logical`) is not app state, it travels **inside the layout
   request**: a layout in flight can never be paired with the other measure's
   figures.
-- Resizing sets up the layout after `RESIZE_SETTLE = 110` ms — in `Treemap` and
-  `Sunburst`; `LiveMap` has a bare `ResizeObserver`, no debounce. Assigning the
-  canvas dimensions only when they actually changed (the assignment clears the
-  canvas) is likewise guarded only in `Treemap`. **Both are gaps, not rules** —
-  when you write a new view, take `Treemap` as the model, not the other two.
+- Resizing sets up the layout after `RESIZE_SETTLE = 110` ms, in `Treemap` and
+  `Sunburst`. Assigning the canvas dimensions only when they actually changed
+  (the assignment clears the canvas) is guarded only in `Treemap`. **That is a
+  gap, not a rule** — when you write a new view, take `Treemap` as the model.
 
 ## Platform
 

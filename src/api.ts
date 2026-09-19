@@ -47,6 +47,14 @@ export interface EntryView {
 
 export type Source =
   | { kind: "live"; root: string }
+  /**
+   * A scan of this machine that has not finished.
+   *
+   * Everything in a view built from one is what the walk has read *so far*.
+   * The backend refuses every destructive action on it, so this is what the
+   * window has to say rather than what it has to enforce.
+   */
+  | { kind: "scanning"; root: string }
   | {
       kind: "snapshot";
       root: string;
@@ -157,10 +165,20 @@ export interface ScanTarget {
   note: string;
 }
 
+/** A whole filesystem, offered as somewhere a scan can start. */
+export interface Volume {
+  name: string;
+  path: string;
+  capacity: Capacity | null;
+  /** The disk the machine booted from. Shown first. */
+  isRoot: boolean;
+}
+
 export interface StartingPoints {
   homeVolume: Capacity | null;
   home: string | null;
   targets: ScanTarget[];
+  volumes: Volume[];
 }
 
 /** What a save produced. */
@@ -257,25 +275,6 @@ export interface ArcArrays {
   radius: number;
 }
 
-/**
- * One tile of the map drawn while a scan is running.
- *
- * `alloc`, `size` and `files` are what has been found under that entry **so
- * far**, not what is there. The view that draws them says so; anything else
- * reading them has to know it too.
- */
-export interface LiveTile {
-  name: string;
-  isDir: boolean;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  alloc: number;
-  size: number;
-  files: number;
-  category: number;
-}
 
 /** One measurement in a target's history. */
 export interface HistoryPoint {
@@ -320,7 +319,21 @@ export interface DiffView {
 type Snake = Record<string, unknown>;
 
 function camelize<T>(value: unknown): T {
-  if (Array.isArray(value)) return value.map((v) => camelize(v)) as unknown as T;
+  if (Array.isArray(value)) {
+    // Only an object can carry a snake_case key, so an array of anything else
+    // is already what it needs to be and is handed back untouched. This is not
+    // a micro-optimisation: a treemap response is eleven parallel arrays with
+    // over a million numbers between them, and rebuilding those element by
+    // element cost 7 ms of every navigation for no change at all.
+    //
+    // Testing one element is enough because these arrays come from serde over
+    // a Rust `Vec<T>`: every element has the same shape. `find` skips nulls so
+    // an optional element cannot make a list of objects look like a list of
+    // primitives.
+    const sample = value.find((v) => v !== null && v !== undefined);
+    if (sample === undefined || typeof sample !== "object") return value as unknown as T;
+    return value.map((v) => camelize(v)) as unknown as T;
+  }
   if (value === null || typeof value !== "object") return value as T;
 
   const out: Snake = {};
@@ -379,8 +392,15 @@ export const api = {
    * entries deleted — the backend holds those rules, because they are about
    * what the data means rather than what the window is showing.
    */
-  saveSnapshot(db: string, label: string | null): Promise<SavedSnapshot> {
-    return call("save_snapshot", { db, label });
+  /**
+   * Store a tree, named rather than assumed.
+   *
+   * The generation is not a guard here, it is the subject: with a tab per scan
+   * there is no single "open" tree to save, and picking one would write the
+   * wrong tab's bytes under the right tab's label.
+   */
+  saveSnapshot(generation: number, db: string, label: string | null): Promise<SavedSnapshot> {
+    return call("save_snapshot", { generation, db, label });
   },
 
   listSnapshots(db: string): Promise<ScanMeta[]> {
@@ -439,13 +459,18 @@ export const api = {
   },
 
   /**
-   * The map to draw while a scan is running. Empty when nothing is running,
-   * and empty until the scan has finished listing its own root — which is the
-   * honest answer to "what have you found", not a failure.
+   * What the running scan has read so far, as an ordinary opened view.
+   *
+   * `null` when no scan is running or the walk has not got as far as its own
+   * root — both are answers rather than failures, which is why this does not
+   * throw for them. The generation it comes back with stays the same across a
+   * scan, so a caller that already has that generation open should refresh its
+   * views rather than treat it as a different tree.
    */
-  liveTiles(width: number, height: number): Promise<LiveTile[]> {
-    return call("live_tiles", { width, height });
+  scanView(basis: SizeBasis): Promise<Opened | null> {
+    return call("scan_view", { basis });
   },
+
 
   /** The age distribution of one folder, for the heat map's key. */
   ageProfile(generation: number, node: number): Promise<AgeProfile> {
@@ -497,6 +522,19 @@ export const api = {
 
   cancelScan(): Promise<boolean> {
     return call("cancel_scan");
+  },
+
+  /**
+   * Give a tree back when its tab is closed.
+   *
+   * Nothing else frees one — a tree is around a hundred megabytes for a
+   * million entries — so a tab that is removed from the bar without this call
+   * is a leak that lasts until the window is quit. Answers whether there was
+   * anything left to free, which is `false` for a tab closed twice or closed
+   * before its scan landed.
+   */
+  closeTree(generation: number): Promise<boolean> {
+    return call("close_tree", { generation });
   },
 
   refreshCapacity(generation: number): Promise<Capacity | null> {

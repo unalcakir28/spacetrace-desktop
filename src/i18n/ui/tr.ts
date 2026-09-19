@@ -7,6 +7,7 @@ export const tr: Dictionary = {
     reload: "Yeniden yükle",
     browse: "Göz at…",
     dismiss: "Kapat",
+    linkFailed: "Tarayıcı açılamadı. Adres: {url}",
     files: "Dosyalar",
     folders: "Klasörler",
     entries: "Girdiler",
@@ -86,22 +87,17 @@ export const tr: Dictionary = {
   },
 
   toolbar: {
-    tagline: "zaman içinde disk kullanımı",
     scanFolder: "Klasör tara…",
+    otherSources: "Başka bir şey aç",
     snapshots: "Anlık görüntüler…",
     remoteAgent: "Uzak ajan…",
+    thisScan: "Bu tarama",
     rescan: "Yeniden tara",
-    rescanTitle: "Bu klasörü yeniden tara",
     saveSnapshot: "Anlık görüntü kaydet…",
-    saveSnapshotTitle: "Sonradan karşılaştırabilmek için bu taramayı sakla",
-    saveBlockedTitle:
-      "Bu taramadan sonra bazı girdiler Çöp Kutusuna taşındı, yani tarama artık diskle uyuşmuyor. Sonucu saklamak için yeniden tarayın.",
-    resetZoom: "Yakınlaştırmayı sıfırla",
-    resetZoomTitle: "Bu taramanın en üstüne dön",
+    saveBlockedNote: "önce yeniden tarayın",
     about: "Hakkında",
     aboutTitle: "Sürüm, lisanslar ve neyin değiştiği",
     history: "Geçmiş",
-    historyTitle: "Bu klasörün saklanan tüm anlık görüntülerdeki büyümesi",
   },
 
   capacity: {
@@ -112,6 +108,9 @@ export const tr: Dictionary = {
 
   source: {
     liveScan: "canlı tarama",
+    scanning: "taranıyor — kısmi",
+    scanningTitle:
+      "Tarama sürüyor. Buradaki her rakam şu ana kadar okunanı gösterir; büyümesi duran bir klasör ile bitmiş bir klasör aynı görünür.",
     snapshot: "anlık görüntü #{id} · {when}",
     files: "dosya",
     entries: "girdi",
@@ -260,6 +259,19 @@ export const tr: Dictionary = {
       "Girdiler Çöp Kutusuna taşındı, ama bu sırada başka bir tarama açıldığı için bu görünüm güncellenemedi.",
   },
 
+  tabs: {
+    bar: "Açık taramalar",
+    home: "Ana sayfa",
+    close: "Sekmeyi kapat",
+    newScan: "Yeni tarama",
+    startingIn: "{folder} taraması başlıyor…",
+  },
+  disks: {
+    title: "Diskler",
+    note: "Dosya sisteminin tamamı. Uzun sürmesini bekleyin.",
+    scan: "Bu diski tara",
+    free: "{size} boş",
+  },
   welcome: {
     headline: "Disklerinizi neyin doldurduğunu görün",
     lede: "Buradan bir klasör tarayın, daha önce aldığınız bir anlık görüntüyü açın ya da bir sunucuda veya NAS'ta çalışan bir ajandan doğrudan okuyun.",

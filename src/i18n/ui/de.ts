@@ -7,6 +7,7 @@ export const de: Dictionary = {
     reload: "Neu laden",
     browse: "Durchsuchen…",
     dismiss: "Ausblenden",
+    linkFailed: "Der Browser ließ sich nicht öffnen. Die Adresse lautet {url}",
     files: "Dateien",
     folders: "Ordner",
     entries: "Einträge",
@@ -86,23 +87,17 @@ export const de: Dictionary = {
   },
 
   toolbar: {
-    tagline: "Festplattenbelegung im Zeitverlauf",
     scanFolder: "Ordner scannen…",
+    otherSources: "Etwas anderes öffnen",
     snapshots: "Snapshots…",
     remoteAgent: "Entfernter Agent…",
+    thisScan: "Dieser Scan",
     rescan: "Erneut scannen",
-    rescanTitle: "Diesen Ordner erneut scannen",
     saveSnapshot: "Snapshot speichern…",
-    saveSnapshotTitle:
-      "Diesen Scan ablegen, damit später dagegen verglichen werden kann",
-    saveBlockedTitle:
-      "Seit diesem Scan wurden Einträge in den Papierkorb verschoben, er passt also nicht mehr zur Festplatte. Scannen Sie erneut, um das Ergebnis zu speichern.",
-    resetZoom: "Zoom zurücksetzen",
-    resetZoomTitle: "Zurück an den Anfang dieses Scans",
+    saveBlockedNote: "erst erneut scannen",
     about: "Über",
     aboutTitle: "Version, Lizenzen und was sich geändert hat",
     history: "Verlauf",
-    historyTitle: "Wie dieser Ordner gewachsen ist, über alle gespeicherten Snapshots",
   },
 
   capacity: {
@@ -114,6 +109,9 @@ export const de: Dictionary = {
 
   source: {
     liveScan: "Live-Scan",
+    scanning: "wird gescannt — unvollständig",
+    scanningTitle:
+      "Der Scan läuft noch. Jede Zahl hier ist das bisher Gelesene, und ein Ordner, der nicht mehr wächst, sieht aus wie einer, der fertig ist.",
     snapshot: "Snapshot #{id} · {when}",
     files: "Dateien",
     entries: "Einträge",
@@ -267,6 +265,19 @@ export const de: Dictionary = {
       "Die Einträge wurden in den Papierkorb verschoben, aber währenddessen wurde ein anderer Scan geöffnet, sodass diese Ansicht nicht aktualisiert werden konnte.",
   },
 
+  tabs: {
+    bar: "Offene Scans",
+    home: "Start",
+    close: "Tab schließen",
+    newScan: "Neuer Scan",
+    startingIn: "Scan von {folder} startet…",
+  },
+  disks: {
+    title: "Laufwerke",
+    note: "Das gesamte Dateisystem. Rechnen Sie mit einer Weile.",
+    scan: "Dieses Laufwerk scannen",
+    free: "{size} frei",
+  },
   welcome: {
     headline: "Sehen Sie, was Ihre Festplatten füllt",
     lede: "Scannen Sie hier einen Ordner, öffnen Sie einen früher aufgenommenen Snapshot, oder lesen Sie einen direkt von einem Agenten, der auf einem Server oder NAS läuft.",

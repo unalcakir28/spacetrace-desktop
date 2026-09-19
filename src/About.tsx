@@ -11,14 +11,15 @@
 // a moment the machine may be offline.
 
 import { useEffect, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { api, type BuildInfo, type ChangelogRelease } from "./api";
+import { openExternal } from "./links";
 import {
   LOCALES,
   LOCALE_NAMES,
   locale as activeLocale,
   setLocale,
+  fill,
   useDict,
   useLocale,
   type Locale,
@@ -32,6 +33,15 @@ export function About({ onClose }: { onClose(): void }) {
   const current = useLocale();
   const [build, setBuild] = useState<BuildInfo | null>(null);
   const [releases, setReleases] = useState<ChangelogRelease[]>([]);
+  /** The address of a link the browser would not take, shown so it can be copied. */
+  const [refused, setRefused] = useState<string | null>(null);
+
+  const open = (url: string) => {
+    setRefused(null);
+    void openExternal(url).then((taken) => {
+      if (!taken) setRefused(url);
+    });
+  };
 
   useEffect(() => {
     api.buildInfo().then(setBuild).catch(() => {
@@ -158,8 +168,9 @@ export function About({ onClose }: { onClose(): void }) {
           {/* Opened in the browser rather than in the webview: this window is
               the app, and a marketing page loaded into it would have no way
               back. */}
-          <button onClick={() => void openUrl(SITE)}>{d.about.website}</button>
-          <button onClick={() => void openUrl(SOURCE)}>{d.about.sourceCode}</button>
+          <button onClick={() => open(SITE)}>{d.about.website}</button>
+          <button onClick={() => open(SOURCE)}>{d.about.sourceCode}</button>
+          {refused && <span className="refused">{fill(d.common.linkFailed, { url: refused })}</span>}
           <span style={{ flex: 1 }} />
           <button className="primary" onClick={onClose}>
             {d.common.close}

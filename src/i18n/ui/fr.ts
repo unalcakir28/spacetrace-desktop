@@ -7,6 +7,7 @@ export const fr: Dictionary = {
     reload: "Recharger",
     browse: "Parcourir…",
     dismiss: "Ignorer",
+    linkFailed: "Impossible d'ouvrir le navigateur. L'adresse est {url}",
     files: "Fichiers",
     folders: "Dossiers",
     entries: "Entrées",
@@ -86,23 +87,17 @@ export const fr: Dictionary = {
   },
 
   toolbar: {
-    tagline: "l'utilisation du disque dans le temps",
     scanFolder: "Analyser un dossier…",
+    otherSources: "Ouvrir autre chose",
     snapshots: "Instantanés…",
     remoteAgent: "Agent distant…",
+    thisScan: "Cette analyse",
     rescan: "Réanalyser",
-    rescanTitle: "Analyser à nouveau ce dossier",
     saveSnapshot: "Enregistrer l'instantané…",
-    saveSnapshotTitle:
-      "Conserver cette analyse pour pouvoir la comparer plus tard",
-    saveBlockedTitle:
-      "Des entrées ont été mises à la corbeille depuis cette analyse, elle ne correspond donc plus au disque. Réanalysez pour enregistrer le résultat.",
-    resetZoom: "Réinitialiser le zoom",
-    resetZoomTitle: "Revenir au sommet de cette analyse",
+    saveBlockedNote: "réanalysez d'abord",
     about: "À propos",
     aboutTitle: "Version, licences et nouveautés",
     history: "Historique",
-    historyTitle: "L'évolution de ce dossier sur tous les instantanés enregistrés",
   },
 
   capacity: {
@@ -114,6 +109,9 @@ export const fr: Dictionary = {
 
   source: {
     liveScan: "analyse en direct",
+    scanning: "analyse en cours — partiel",
+    scanningTitle:
+      "L'analyse est toujours en cours. Chaque chiffre ici correspond à ce qui a été lu jusqu'à présent, et un dossier qui a cessé de croître ressemble à un dossier terminé.",
     snapshot: "instantané #{id} · {when}",
     files: "fichiers",
     entries: "entrées",
@@ -266,6 +264,19 @@ export const fr: Dictionary = {
       "Les entrées ont été mises à la corbeille, mais une autre analyse a été ouverte pendant ce temps, si bien que cette vue n'a pas pu être mise à jour.",
   },
 
+  tabs: {
+    bar: "Analyses ouvertes",
+    home: "Accueil",
+    close: "Fermer l'onglet",
+    newScan: "Nouvelle analyse",
+    startingIn: "Démarrage de l'analyse de {folder}…",
+  },
+  disks: {
+    title: "Disques",
+    note: "Tout le système de fichiers. Prévoyez du temps.",
+    scan: "Analyser ce disque",
+    free: "{size} libres",
+  },
   welcome: {
     headline: "Voyez ce qui remplit vos disques",
     lede: "Analysez un dossier ici, ouvrez un instantané pris plus tôt, ou lisez-en un directement depuis un agent qui tourne sur un serveur ou un NAS.",

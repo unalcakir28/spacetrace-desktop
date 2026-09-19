@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternal } from "./links";
 
 import { api } from "./api";
 import { fill, useDict, useLocale } from "./i18n";
@@ -40,6 +40,8 @@ export function UpdateBar() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [current, setCurrent] = useState("");
   const [error, setError] = useState("");
+  /** The address of a link the browser would not take, shown so it can be copied. */
+  const [refused, setRefused] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,9 +91,22 @@ export function UpdateBar() {
         <b>{fill(d.update.available, { version: update.version })}</b>
         <span className="dim">{fill(d.update.availableDetail, { current })}</span>
         {stage === "failed" && <span className="fail">{d.update.failed}: {error}</span>}
+        {refused && <span className="refused">{fill(d.common.linkFailed, { url: refused })}</span>}
       </span>
 
-      <button className="ghost" onClick={() => void openUrl(changelogUrl(locale))}>
+      <button
+        className="ghost"
+        onClick={() => {
+          // The same handling the About panel gives its two links. `openExternal`
+          // returns whether the browser took it, and throwing that away is what
+          // made a refused link look like a dead button: the capability scope is
+          // the thing that says no, and it says it silently.
+          setRefused(null);
+          void openExternal(changelogUrl(locale)).then((taken) => {
+            if (!taken) setRefused(changelogUrl(locale));
+          });
+        }}
+      >
         {d.update.seeWhatsNew}
       </button>
       <button

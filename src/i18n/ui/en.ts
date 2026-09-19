@@ -19,6 +19,8 @@ export const en = {
     reload: "Reload",
     browse: "Browse…",
     dismiss: "Dismiss",
+    /** Shown beside a link that could not be handed to the browser. */
+    linkFailed: "Could not open the browser. The address is {url}",
     files: "Files",
     folders: "Folders",
     entries: "Entries",
@@ -98,22 +100,17 @@ export const en = {
   },
 
   toolbar: {
-    tagline: "disk usage over time",
     scanFolder: "Scan folder…",
+    otherSources: "Open something else",
     snapshots: "Snapshots…",
     remoteAgent: "Remote agent…",
+    thisScan: "This scan",
     rescan: "Rescan",
-    rescanTitle: "Scan this folder again",
     saveSnapshot: "Save snapshot…",
-    saveSnapshotTitle: "Store this scan so it can be compared against later",
-    saveBlockedTitle:
-      "Entries were moved to the Trash since this scan, so it no longer matches the disk. Rescan to store the result.",
-    resetZoom: "Reset zoom",
-    resetZoomTitle: "Back to the top of this scan",
+    saveBlockedNote: "rescan first",
     about: "About",
     aboutTitle: "Version, licences and what changed",
     history: "History",
-    historyTitle: "How this folder has grown, across every stored snapshot",
   },
 
   capacity: {
@@ -124,6 +121,9 @@ export const en = {
 
   source: {
     liveScan: "live scan",
+    scanning: "scanning — partial",
+    scanningTitle:
+      "The scan is still running. Every figure here is what has been read so far, and a folder that has stopped growing looks the same as one that is finished.",
     snapshot: "snapshot #{id} · {when}",
     files: "files",
     entries: "entries",
@@ -278,6 +278,19 @@ export const en = {
       "The entries were moved to the Trash, but a different scan was opened while that happened, so this view could not be updated.",
   },
 
+  tabs: {
+    bar: "Open scans",
+    home: "Home",
+    close: "Close tab",
+    newScan: "New scan",
+    startingIn: "Starting the scan of {folder}…",
+  },
+  disks: {
+    title: "Disks",
+    note: "The whole filesystem. Expect it to take a while.",
+    scan: "Scan this disk",
+    free: "{size} free",
+  },
   welcome: {
     headline: "See what is filling your disks",
     lede: "Scan a folder here, open a snapshot you took earlier, or read one straight off an agent running on a server or NAS.",

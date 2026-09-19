@@ -11,6 +11,7 @@ export const it: Dictionary = {
     reload: "Ricarica",
     browse: "Sfoglia…",
     dismiss: "Ignora",
+    linkFailed: "Non è stato possibile aprire il browser. L'indirizzo è {url}",
     files: "File",
     folders: "Cartelle",
     entries: "Elementi",
@@ -90,22 +91,17 @@ export const it: Dictionary = {
   },
 
   toolbar: {
-    tagline: "l'uso del disco nel tempo",
     scanFolder: "Scansiona cartella…",
+    otherSources: "Apri qualcos'altro",
     snapshots: "Snapshot…",
     remoteAgent: "Agente remoto…",
+    thisScan: "Questa scansione",
     rescan: "Ripeti scansione",
-    rescanTitle: "Esegui di nuovo la scansione di questa cartella",
     saveSnapshot: "Salva snapshot…",
-    saveSnapshotTitle: "Conserva questa scansione per poterla confrontare in seguito",
-    saveBlockedTitle:
-      "Dopo questa scansione alcuni elementi sono stati spostati nel Cestino, quindi non corrisponde più al disco. Ripetere la scansione per conservare il risultato.",
-    resetZoom: "Reimposta zoom",
-    resetZoomTitle: "Torna alla radice di questa scansione",
+    saveBlockedNote: "ripeti prima la scansione",
     about: "Informazioni",
     aboutTitle: "Versione, licenze e cosa è cambiato",
     history: "Cronologia",
-    historyTitle: "Come è cresciuta questa cartella, in tutti gli snapshot archiviati",
   },
 
   capacity: {
@@ -116,6 +112,9 @@ export const it: Dictionary = {
 
   source: {
     liveScan: "scansione in tempo reale",
+    scanning: "scansione in corso — parziale",
+    scanningTitle:
+      "La scansione è ancora in corso. Ogni cifra qui è ciò che è stato letto finora, e una cartella che ha smesso di crescere sembra identica a una completa.",
     snapshot: "snapshot #{id} · {when}",
     files: "file",
     entries: "elementi",
@@ -265,6 +264,19 @@ export const it: Dictionary = {
       "Le voci sono state spostate nel Cestino, ma nel frattempo è stata aperta un'altra scansione, quindi questa vista non è stata aggiornata.",
   },
 
+  tabs: {
+    bar: "Scansioni aperte",
+    home: "Home",
+    close: "Chiudi scheda",
+    newScan: "Nuova scansione",
+    startingIn: "Avvio della scansione di {folder}…",
+  },
+  disks: {
+    title: "Dischi",
+    note: "L'intero file system. Metti in conto un po' di tempo.",
+    scan: "Scansiona questo disco",
+    free: "{size} liberi",
+  },
   welcome: {
     headline: "Cosa sta riempiendo i dischi",
     lede: "Scansionare una cartella qui, aprire uno snapshot preso in precedenza, oppure leggerne uno direttamente da un agente in esecuzione su un server o un NAS.",

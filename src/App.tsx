@@ -8,12 +8,21 @@
 // * A scan that replaces the open tree only replaces it when it *finishes*. If
 //   it is cancelled or fails, the previous scan is still there, still usable.
 //
+//   **That is about a refresh, not about every scan.** Asking for a different
+//   folder replaces what is open whichever way this goes, so the window shows
+//   that scan filling in — the same folder list, map and inspector a finished
+//   scan gets, over a tree that grows every second — rather than holding a map
+//   of somewhere else until the end. Only `Rescan`, which asks for the folder
+//   already on screen, keeps it. A scan being watched is refused every
+//   destructive action, because every figure in it is partial.
+//   `SCAN_VIEW_MS` below is how often it is asked.
+//
 // * Deleting entries does not reload anything. The tree is edited in place in
 //   Rust, so the node ids this window is holding stay valid and the folder
 //   panel, the map and the zoom level all survive. What comes back is a patch
 //   describing what changed, which the panels apply.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
   api,
@@ -50,13 +59,14 @@ import { DiffDialog, RemoteDialog, ScanDialog, SnapshotDialog } from "./Dialogs"
 import { HistoryDialog } from "./Timeline";
 import { FolderTree } from "./FolderTree";
 import { Inspector } from "./Inspector";
-import { LiveMap } from "./LiveMap";
 import { Progress, saveWorking, scanWorking, trashWorking, type Working } from "./Progress";
 import { DEFAULT_WIDTHS, Resizer, usePaneWidths } from "./Resizer";
 import { SaveDialog } from "./SaveDialog";
 import { Toasts, useToasts } from "./Toasts";
 import { TrashDialog } from "./TrashDialog";
 import { Sunburst } from "./Sunburst";
+import { TabBar } from "./TabBar";
+import { HOME_ID, useTabs } from "./tabs";
 import { Treemap } from "./Treemap";
 import * as fmt from "./format";
 
@@ -75,27 +85,88 @@ type ColorMode = "category" | "age";
  */
 type ViewShape = "map" | "rings";
 
+/**
+ * How often the view of a running scan is refreshed.
+ *
+ * Slower than the progress strip's own tick, and for the reason the live
+ * preview before it gave: the strip proves something is moving and wants to be
+ * immediate, while this is read by comparing rectangles, and a map that relays
+ * itself eight times a second is harder to follow than one that settles. It
+ * also costs something real at the other end — a copy of the scanner's arena
+ * per refresh, measured at 12–26 ms on a 2.3M-entry home directory — so the
+ * interval is the price as much as the pace.
+ */
+const SCAN_VIEW_MS = 700;
+
 export function App() {
   const d = useDict();
-  const [opened, setOpened] = useState<Opened | null>(null);
-  const [mapRoot, setMapRoot] = useState<number>(0);
-  const [crumbs, setCrumbs] = useState<EntryView[]>([]);
-  const [selection, setSelection] = useState<number[]>([]);
-  const [chosen, setChosen] = useState<EntryView[]>([]);
+
+  /**
+   * One scan per tab, and everything that describes a scan lives in its tab.
+   *
+   * The shims under here keep the rest of this file talking about `opened`,
+   * `mapRoot` and `selection` as single values, because from the point of view
+   * of the panels that is what they are: whatever the reader is looking at. The
+   * tab is where they are *kept*, so switching away and back is not a reload,
+   * and a scan landing in a tab nobody is watching does not disturb the one in
+   * front.
+   */
+  const tabs = useTabs(d.tabs.home);
+  const { active, activeId } = tabs;
+  const opened = active.opened;
+  const mapRoot = active.mapRoot;
+  const crumbs = active.crumbs;
+  const selection = active.selection;
+  const chosen = active.chosen;
+  const patch = active.patch;
+  const capacity = active.capacity;
+  const liveRevision = active.liveRevision;
+  const lastScan = active.lastScan;
+
+  const { update, open, close, select, adopt } = tabs;
+  const patchActive = useCallback(
+    (change: Parameters<typeof update>[1]) => update(activeId, change),
+    [update, activeId],
+  );
+  const setMapRoot = useCallback(
+    (value: number) => patchActive({ mapRoot: value }),
+    [patchActive],
+  );
+  const setSelection = useCallback(
+    (value: number[] | ((prev: number[]) => number[])) =>
+      patchActive((tab) => ({
+        selection: typeof value === "function" ? value(tab.selection) : value,
+      })),
+    [patchActive],
+  );
+  const setChosen = useCallback(
+    (value: EntryView[]) => patchActive({ chosen: value }),
+    [patchActive],
+  );
+
   const [dialog, setDialog] = useState<Dialog>(null);
   const [diff, setDiff] = useState<DiffView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [working, setWorking] = useState<Working | null>(null);
-  const [patch, setPatch] = useState<TrashOutcome | null>(null);
-  const [capacity, setCapacity] = useState<Capacity | null>(null);
+  // `liveRevision` is bumped every time a running scan's view is taken. The
+  // generation cannot do that job: it deliberately stays put across a scan so
+  // the window keeps its place, which leaves nothing to tell the panels that
+  // the numbers behind their ids have changed. This is that signal, and it is
+  // the same one an in-place edit uses.
+  /**
+   * Whether the scan that is running should be watched as it fills in.
+   *
+   * False only for a deliberate refresh of what is already open — see
+   * `runScan`. It is the reason the scan was started, not a comparison of
+   * paths: two spellings of one folder are the same scan to a person and
+   * different strings here.
+   */
+  const [watchLive, setWatchLive] = useState(true);
   const [menu, setMenu] = useState<MenuRequest | null>(null);
   const [confirming, setConfirming] = useState<EntryView[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [database, setDatabase] = useState("");
-  const [lastScan, setLastScan] = useState<{ request: ScanRequest; label: string } | null>(
-    null,
-  );
   const [widths, setWidths] = usePaneWidths();
   const [basis, setBasis] = useSizeBasis();
   // Not remembered between sessions, unlike the basis. The basis changes what
@@ -114,16 +185,135 @@ export function App() {
       .catch(() => setDatabase(""));
   }, []);
 
-  const receive = useCallback((result: Opened) => {
-    setOpened(result);
-    setMapRoot(result.root.node);
-    setSelection([]);
-    setDialog(null);
-    setDiff(null);
-    setError(null);
-    setPatch(null);
-    setCapacity(result.capacity);
-  }, []);
+  const receive = useCallback(
+    (tab: number, result: Opened) => {
+      // Before the tab is told anything: this is where the tree the tab was
+      // showing stops being shown, and where a result whose tab has already
+      // been closed is turned away and freed. Nothing below runs in that case
+      // — there is no tab left to put it in.
+      if (!adopt(tab, result.generation)) return;
+
+      update(tab, {
+        opened: result,
+        mapRoot: result.root.node,
+        selection: [],
+        patch: null,
+        capacity: result.capacity,
+        // The title is not touched here. It was set when the tab was opened,
+        // from the name the reader clicked — "Macintosh HD", not "/" — and a
+        // result arriving is no reason to replace a name with a path.
+      });
+      setDialog(null);
+      setDiff(null);
+      setError(null);
+    },
+    [update, adopt],
+  );
+
+  /**
+   * Take a view of the tree the ids in it already belong to.
+   *
+   * The difference from `receive` is everything it does *not* do. A refresh of
+   * a running scan arrives with the generation the window already has, because
+   * the scanner's arena only grows and an id keeps naming the same entry — so
+   * the folder somebody opened, the entry they selected and the rectangle they
+   * zoomed into all survive, and only the figures move. Calling `receive` here
+   * instead would reset the window to the root once a second, which is the same
+   * as not being able to use it at all.
+   */
+  const refresh = useCallback(
+    (tab: number, result: Opened) => {
+      update(tab, (prev) => ({
+        opened: result,
+        capacity: result.capacity,
+        // What tells the panels to fetch their rows and their layout again:
+        // the tree behind these ids is not the one they last read.
+        liveRevision: prev.liveRevision + 1,
+      }));
+    },
+    [update],
+  );
+
+  /**
+   * Which tab the running scan belongs to, and which tree it has produced.
+   *
+   * Refs rather than state, for two different reasons. The tab is a ref because
+   * a scan must keep landing where it was started even after the reader has
+   * switched tabs, and re-rendering on that would be pointless. The generation
+   * is a ref because it changes on the scan's first answer, and depending on it
+   * would tear the poll's interval down and build it again on every tick.
+   */
+  const scanTab = useRef<number | null>(null);
+  const scanGeneration = useRef<number | undefined>(undefined);
+
+  // Watch the scan fill the window in.
+  //
+  // For every scan except a deliberate refresh of what is already open, which
+  // keeps its map: the rule at the top of this file. The first answer is a
+  // different tree and goes through `receive`; every one after it carries the
+  // generation this window already has and goes through `refresh`, which is
+  // what keeps the reader's place.
+  //
+  // `null` is the ordinary answer before the walk has read its own root, and
+  // again in the moment between the scan ending and its result arriving. It is
+  // not an error and it does not stop the loop — the scan's own promise is what
+  // ends this, by clearing `working`.
+  const live = !!working && working.kind === "scan";
+  const liveTarget = watchLive || !opened || opened.source.kind === "scanning";
+  useEffect(() => {
+    if (!live || !liveTarget) return;
+    let cancelled = false;
+
+    const pull = () => {
+      const tab = scanTab.current;
+      if (tab === null) return;
+      api
+        .scanView(basis)
+        .then((view) => {
+          if (cancelled || !view) return;
+          if (view.generation === scanGeneration.current) {
+            refresh(tab, view);
+            return;
+          }
+          scanGeneration.current = view.generation;
+          receive(tab, view);
+        })
+        // A refresh that could not be fetched leaves what is on screen alone.
+        // The scan is still running, the strip above is still reporting it, and
+        // there is nothing here for a reader to do.
+        .catch(() => {});
+    };
+
+    pull();
+    const timer = window.setInterval(pull, SCAN_VIEW_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [live, liveTarget, basis, receive, refresh]);
+
+  /**
+   * Close a tab, and stop the scan that was filling it.
+   *
+   * `close` gives the tree back; this is the other half — the walk itself. A
+   * scan whose tab is gone has nobody left to show it and would carry on
+   * reading the disk to the end regardless, which on a full volume is minutes
+   * of a busy machine for a window that has moved on.
+   *
+   * Guarded on the tab rather than on "is anything running": `cancelScan` stops
+   * whatever is running and cannot be told which, and `scanTab` is the window's
+   * own record of whose that is.
+   */
+  const closeTab = useCallback(
+    (id: number) => {
+      // `scanTab` is left alone: the scan's own `finally` is what clears the
+      // progress bar, and it checks that ref to know the answer is still its
+      // own. Clearing it here would stop the scan and leave the bar running.
+      if (scanTab.current === id) api.cancelScan().catch(() => {});
+      close(id);
+    },
+    [close],
+  );
 
   const stopScan = useCallback(() => {
     setWorking((prev) => (prev ? { ...prev, stopping: true } : prev));
@@ -157,22 +347,42 @@ export function App() {
     [trashTotal],
   );
 
-  /** Start a scan without taking the window away while it runs. */
+  /**
+   * Start a scan.
+   *
+   * **A new scan is a new tab; a rescan is the same tab.** That is the whole of
+   * `refreshing`, and it decides two things at once. It decides where the
+   * result lands, and it decides whether the window shows the scan filling in:
+   * asking for a *different* folder means the map in front of you is about to
+   * be replaced whatever happens — so it gets a tab of its own and is watched
+   * as it builds, rather than leaving stale figures about somewhere else on
+   * screen and then jumping. Asking for the *same* folder again is the case the
+   * rule at the top of this file is about: that map is still a true answer
+   * while the new one is built, so it stays exactly where it is.
+   */
   const runScan = useCallback(
-    (request: ScanRequest, label: string) => {
+    (request: ScanRequest, label: string, refreshing = false) => {
       setDialog(null);
       setError(null);
+      setWatchLive(!refreshing);
+
+      const tab = refreshing ? activeId : open(label);
+      scanTab.current = tab;
+      // Cleared rather than kept: the next answer belongs to a tree this tab
+      // has never seen, and comparing it against the last scan's generation
+      // would take the first view of a new scan for a refresh of an old one.
+      scanGeneration.current = refreshing ? active.opened?.generation : undefined;
       // Remembered so Rescan can repeat this scan rather than a default one:
       // dropping the folders the user chose to exclude would silently change
       // what the numbers mean.
-      setLastScan({ request, label });
+      update(tab, { lastScan: { request, label }, title: label });
       setScanLabel(label);
       setWorking(scanWorking(label, null, stopScan));
 
       api
         .scanDirectory(request, basis)
         .then((result) => {
-          receive(result);
+          receive(tab, result);
           if (result.scanErrors > 0) {
             show(
               "info",
@@ -192,20 +402,44 @@ export function App() {
           }
           setError(errorMessage(err));
         })
-        .finally(() => setWorking(null));
+        .finally(() => {
+          // Only if this is still the scan being tracked. Starting a scan
+          // cancels the one before it, and a cancelled scan's promise settles
+          // *after* its replacement has already claimed these — without the
+          // check, the older scan's teardown clears the progress strip and the
+          // polling loop of the scan that is still running.
+          if (scanTab.current !== tab) return;
+          setWorking(null);
+          scanTab.current = null;
+        });
     },
-    [basis, receive, show, stopScan],
+    [basis, receive, show, stopScan, open, update, activeId, active.opened?.generation],
+  );
+
+  /**
+   * Put a tree that arrived from somewhere else — a stored snapshot, an agent —
+   * in a tab of its own.
+   *
+   * The same reasoning as a scan of a different folder: it replaces nothing, so
+   * it takes nothing away.
+   */
+  const openInNewTab = useCallback(
+    (result: Opened) => {
+      const tab = open(shortName(result.source.root));
+      receive(tab, result);
+    },
+    [open, receive],
   );
 
   /** Repeat the scan that produced what is open, with the settings it used. */
   const rescan = useCallback(() => {
     if (!opened || opened.source.kind !== "live") return;
     if (lastScan) {
-      runScan(lastScan.request, lastScan.label);
+      runScan(lastScan.request, lastScan.label, true);
       return;
     }
     // Opened before this window remembered anything, e.g. after a reload.
-    runScan({ path: opened.source.root }, shortName(opened.source.root));
+    runScan({ path: opened.source.root }, shortName(opened.source.root), true);
   }, [opened, lastScan, runScan, basis]);
 
   // Breadcrumbs follow whatever the map is rooted at.
@@ -214,7 +448,7 @@ export function App() {
     let cancelled = false;
     api
       .ancestors(opened.generation, mapRoot, basis)
-      .then((chain) => !cancelled && setCrumbs(chain))
+      .then((chain) => !cancelled && patchActive({ crumbs: chain }))
       .catch((err) => {
         if (cancelled || isStale(err)) return;
         setError(errorMessage(err));
@@ -267,6 +501,23 @@ export function App() {
   // `receive`, so a fresh scan can be stored again.
   const edited = !!patch && patch.trashed.length > 0;
 
+  /**
+   * What the map compares to decide its layout is stale.
+   *
+   * Two things change the tree behind ids that did not move: an entry going to
+   * the Trash, and a refresh of a running scan. They cannot happen at once — a
+   * scan's view refuses every edit — so one value carries both.
+   *
+   * **`unknown` is the accurate type, not a shrug.** Nothing reads this: it is
+   * compared by identity in a dependency array, and that is the whole contract.
+   * The obvious tidy-up is to make it one counter bumped by both events — and
+   * that is wrong, because the folder panel must not be included. It takes
+   * `liveRevision` on its own precisely so a delete does not reload it: a
+   * delete is applied in place from `patch`, which is the rule at the top of
+   * this file. One counter for both would reload the tree on every deletion.
+   */
+  const revision: unknown = patch ?? liveRevision;
+
   /** Move a selection to the Trash, then patch what is on screen. */
   const trash = useCallback(
     (nodes: number[]) => {
@@ -279,29 +530,31 @@ export function App() {
       api
         .moveToTrash(opened.generation, nodes, basis)
         .then((result) => {
-          setPatch(result);
-          setOpened((prev) => {
-            if (!prev || prev.generation !== result.generation) return prev;
+          patchActive({ patch: result });
+          // The map may have been rooted inside something that just went.
+          const gone = new Set(result.trashed.map((entry) => entry.node));
+          patchActive((tab) => {
+            const prev = tab.opened;
+            if (!prev || prev.generation !== result.generation) return {};
             // The root entry carries the folder list's top row, so it needs
             // the corrected figure too.
             const correctedRoot = result.ancestors.find(
               (entry) => entry.node === prev.root.node,
             );
             return {
-              ...prev,
-              totalSize: result.totalSize,
-              totalAlloc: result.totalAlloc,
-              root: correctedRoot ?? prev.root,
+              opened: {
+                ...prev,
+                totalSize: result.totalSize,
+                totalAlloc: result.totalAlloc,
+                root: correctedRoot ?? prev.root,
+              },
+              mapRoot: gone.has(tab.mapRoot)
+                ? result.trashed.find((entry) => entry.node === tab.mapRoot)?.parent ??
+                  tab.mapRoot
+                : tab.mapRoot,
+              selection: tab.selection.filter((node) => !gone.has(node)),
             };
           });
-
-          // The map may have been rooted inside something that just went.
-          const gone = new Set(result.trashed.map((entry) => entry.node));
-          setMapRoot((prev) => {
-            if (!gone.has(prev)) return prev;
-            return result.trashed.find((entry) => entry.node === prev)?.parent ?? prev;
-          });
-          setSelection((prev) => prev.filter((node) => !gone.has(node)));
           report(result, show);
         })
         .catch((err) => {
@@ -330,7 +583,7 @@ export function App() {
       setWorking(saveWorking(opened.entries));
 
       api
-        .saveSnapshot(database, label)
+        .saveSnapshot(opened.generation, database, label)
         .then((saved) => {
           setDialog(null);
           show(
@@ -361,7 +614,7 @@ export function App() {
     if (!opened) return;
     api
       .refreshCapacity(opened.generation)
-      .then(setCapacity)
+      .then((fresh) => patchActive({ capacity: fresh }))
       .catch((err) => {
         if (isStale(err)) return;
         setError(errorMessage(err));
@@ -389,6 +642,47 @@ export function App() {
     },
     [opened, show, basis],
   );
+
+  /**
+   * Open a menu under the control that asked for it.
+   *
+   * The same menu the right-click uses, measured and clamped by the same code.
+   * A second popover implementation would be a second set of keyboard, focus
+   * and off-screen bugs to find.
+   */
+  const openUnder = useCallback((anchor: HTMLElement, items: MenuItem[]) => {
+    const box = anchor.getBoundingClientRect();
+    setMenu({ x: box.left, y: box.bottom + 4, items });
+  }, []);
+
+  /**
+   * What can be done to the tree that is open, as opposed to the app.
+   *
+   * One list, shown in three places: as buttons on the line that says what is
+   * open, at the foot of the right-click menu, and — for History, the only one
+   * that does not need a scan — on the opening screen. They were behind a `⋯`
+   * in exactly one of those and nowhere else, which is the version of a command
+   * you have to already know about in order to find.
+   */
+  const scanActions: MenuItem[] = useMemo(() => {
+    const items: MenuItem[] = [];
+    if (opened?.source.kind === "live") {
+      items.push({ label: d.toolbar.rescan, disabled: !!working, run: rescan });
+      items.push({
+        label: d.toolbar.saveSnapshot,
+        // A disabled control with no reason beside it is the version of this
+        // that gets reported as a bug. As a button the note is its tooltip; in
+        // the menu it is the note.
+        ...(edited ? { note: d.toolbar.saveBlockedNote } : {}),
+        disabled: !!working || edited,
+        run: () => setDialog("save"),
+      });
+    }
+    if (opened) {
+      items.push({ label: d.toolbar.history, run: () => setDialog("history") });
+    }
+    return items;
+  }, [opened, working, edited, rescan, d]);
 
   const openMenu = useCallback(
     (entry: EntryView, x: number, y: number) => {
@@ -441,72 +735,53 @@ export function App() {
         run: () => askToTrash(acting),
       });
 
+      // The same commands as the buttons above the map. A right-click is where
+      // a lot of people look first, and until now it offered everything that
+      // could be done to an *entry* and nothing that could be done to the scan
+      // the entry is in.
+      scanActions.forEach((action, index) => {
+        items.push({ ...action, ...(index === 0 ? { separated: true } : {}) });
+      });
+
       setMenu({ x, y, items });
     },
-    [opened, selection, working, askToTrash, show],
+    [opened, selection, working, askToTrash, show, scanActions],
   );
 
   return (
     <div className="app">
+      {/* Only the app and where a tree comes from. Anything that changes what
+          is *on* screen lives beside the thing it changes: which measure the
+          figures are in is on the line that prints them, and how the picture
+          is drawn is on the picture. A row that held all three was fourteen
+          controls wide and wrapped onto three lines at this window's width,
+          with "open a different disk" sitting at the same weight as "draw the
+          same data as rings". */}
       <div className="toolbar">
-        <div className="brand">
-          <strong>spacetrace</strong>
-          <span>{d.toolbar.tagline}</span>
-        </div>
-        <button onClick={() => setDialog("scan")}>{d.toolbar.scanFolder}</button>
-        <button onClick={() => setDialog("snapshots")}>{d.toolbar.snapshots}</button>
-        <button onClick={() => setDialog("remote")}>{d.toolbar.remoteAgent}</button>
-        {/* Offered only with a folder on screen, because this opens *that
-            folder's* history; with nothing open it would be the snapshot list
-            under a different name. */}
-        {opened && (
-          <button onClick={() => setDialog("history")} title={d.toolbar.historyTitle}>
-            {d.toolbar.history}
-          </button>
-        )}
-        <div className="spacer" />
-        {opened?.source.kind === "live" && (
+        <strong className="brand">spacetrace</strong>
+
+        {/* The other two sources are behind the caret rather than beside it:
+            scanning a folder is what nearly every session starts with, and a
+            snapshot or an agent is the exception that can afford a click. */}
+        <div className="split">
+          <button onClick={() => setDialog("scan")}>{d.toolbar.scanFolder}</button>
           <button
-            className="ghost"
-            onClick={rescan}
-            disabled={!!working}
-            title={d.toolbar.rescanTitle}
-          >
-            {d.toolbar.rescan}
-          </button>
-        )}
-        {opened?.source.kind === "live" && (
-          <button
-            className="ghost"
-            onClick={() => setDialog("save")}
-            disabled={!!working || edited}
-            title={
-              edited ? d.toolbar.saveBlockedTitle : d.toolbar.saveSnapshotTitle
+            className="caret"
+            aria-label={d.toolbar.otherSources}
+            title={d.toolbar.otherSources}
+            onClick={(event) =>
+              openUnder(event.currentTarget, [
+                { label: d.toolbar.snapshots, run: () => setDialog("snapshots") },
+                { label: d.toolbar.remoteAgent, run: () => setDialog("remote") },
+              ])
             }
           >
-            {d.toolbar.saveSnapshot}
+            <Caret />
           </button>
-        )}
-        {opened && (
-          <button
-            className="ghost"
-            onClick={() => setMapRoot(opened.root.node)}
-            disabled={mapRoot === opened.root.node}
-            title={d.toolbar.resetZoomTitle}
-          >
-            {d.toolbar.resetZoom}
-          </button>
-        )}
-        {opened && <BasisSwitch basis={basis} onChange={setBasis} busy={!!working} />}
-        {opened && <ColorSwitch mode={colorBy} onChange={setColorBy} />}
-        {opened && <ShapeSwitch shape={shape} onChange={setShape} />}
-        <button
-          className="ghost"
-          onClick={() => setDialog("about")}
-          title={d.toolbar.aboutTitle}
-        >
-          {d.toolbar.about}
-        </button>
+        </div>
+
+        <div className="spacer" />
+
         {capacity && (
           <CapacityChip
             capacity={capacity}
@@ -514,26 +789,61 @@ export function App() {
             onRefresh={refreshCapacity}
           />
         )}
+        <button
+          className="ghost"
+          onClick={() => setDialog("about")}
+          title={d.toolbar.aboutTitle}
+        >
+          {d.toolbar.about}
+        </button>
       </div>
+
+      <TabBar
+        tabs={tabs.tabs}
+        activeId={activeId}
+        onSelect={select}
+        onClose={closeTab}
+        onNew={() => {
+          select(HOME_ID);
+          setDialog("scan");
+        }}
+      />
 
       <UpdateBar />
 
-      {opened ? <div className="source-line">{describe(opened, basis)}</div> : <div />}
+      {opened ? (
+        <SourceBar
+          opened={opened}
+          basis={basis}
+          busy={!!working}
+          onBasis={setBasis}
+          actions={scanActions}
+        />
+      ) : (
+        <div />
+      )}
 
       {working ? <Progress {...working} /> : <div />}
 
-      {!opened && working?.kind === "scan" ? (
-        // Only here, and only with nothing open. A rescan leaves the map that
-        // is already on screen alone: work never takes the window away.
-        <LiveMap />
-      ) : !opened ? (
-        <Welcome
-          busy={!!working}
-          onScanPath={(path, label) => runScan({ path }, label)}
-          onScan={() => setDialog("scan")}
-          onSnapshots={() => setDialog("snapshots")}
-          onRemote={() => setDialog("remote")}
-        />
+      {!opened ? (
+        active.kind === "home" ? (
+          <Welcome
+            busy={!!working}
+            onScanPath={(path, label) => runScan({ path }, label)}
+            onScan={() => setDialog("scan")}
+            onSnapshots={() => setDialog("snapshots")}
+            onRemote={() => setDialog("remote")}
+            onHistory={() => setDialog("history")}
+          />
+        ) : (
+          // A scan tab before its first view has landed. Showing the opening
+          // screen here would offer a new scan inside the tab that is already
+          // running one.
+          <div className="starting">
+            <span className="pulse" />
+            <p>{fill(d.tabs.startingIn, { folder: active.title })}</p>
+          </div>
+        )
       ) : (
         <div
           className="workspace"
@@ -550,6 +860,7 @@ export function App() {
               mapRoot={mapRoot}
               chain={chain}
               patch={patch}
+              revision={liveRevision}
               basis={basis}
               onSelectionChange={setSelection}
               onContextMenu={openMenu}
@@ -567,22 +878,25 @@ export function App() {
 
           <div className="map-area">
             <div className="crumbs">
-              {crumbs.map((crumb, index) => (
-                <span key={crumb.node} style={{ display: "flex", alignItems: "center" }}>
-                  {index > 0 && <span className="crumb-sep">/</span>}
-                  <button
-                    className={`crumb${index === crumbs.length - 1 ? " current" : ""}`}
-                    onClick={() => setMapRoot(crumb.node)}
-                    title={crumb.relPath || opened.root.name}
-                  >
-                    {crumb.name || shortName(opened.source.root)}
-                  </button>
-                </span>
-              ))}
-              <span style={{ flex: 1 }} />
-              <span className="hint" style={{ paddingRight: 4, whiteSpace: "nowrap" }}>
-                {d.map.crumbHint}
-              </span>
+              {/* The trail scrolls inside the row rather than the row itself:
+                  a deep path used to push everything after it off the end, and
+                  the first crumb is also what "reset zoom" used to be. */}
+              <div className="trail">
+                {crumbs.map((crumb, index) => (
+                  <span key={crumb.node} style={{ display: "flex", alignItems: "center" }}>
+                    {index > 0 && <span className="crumb-sep">/</span>}
+                    <button
+                      className={`crumb${index === crumbs.length - 1 ? " current" : ""}`}
+                      onClick={() => setMapRoot(crumb.node)}
+                      title={crumb.relPath || opened.root.name}
+                    >
+                      {crumb.name || shortName(opened.source.root)}
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <span className="hint">{d.map.crumbHint}</span>
+              <ShapeSwitch shape={shape} onChange={setShape} />
             </div>
 
             {error && (
@@ -596,7 +910,7 @@ export function App() {
                 generation={opened.generation}
                 root={mapRoot}
                 selection={selection}
-                revision={patch}
+                revision={revision}
                 basis={basis}
                 colorBy={colorBy}
                 onSelect={(node) => setSelection([node])}
@@ -607,7 +921,7 @@ export function App() {
                 generation={opened.generation}
                 root={mapRoot}
                 selection={selection}
-                revision={patch}
+                revision={revision}
                 basis={basis}
                 colorBy={colorBy}
                 onSelect={(node) => setSelection([node])}
@@ -616,9 +930,13 @@ export function App() {
             )}
 
             {colorBy === "age" ? (
-              <AgeLegend generation={opened.generation} node={mapRoot} basis={basis} />
+              <AgeLegend generation={opened.generation} node={mapRoot} basis={basis}>
+                <ColorSwitch mode={colorBy} onChange={setColorBy} />
+              </AgeLegend>
             ) : (
-              <Legend />
+              <Legend>
+                <ColorSwitch mode={colorBy} onChange={setColorBy} />
+              </Legend>
             )}
           </div>
 
@@ -675,7 +993,7 @@ export function App() {
         <SnapshotDialog
           basis={basis}
           onClose={() => setDialog(null)}
-          onOpened={receive}
+          onOpened={openInNewTab}
           onHistory={() => setDialog("history")}
           onDiff={(view) => {
             setDialog(null);
@@ -695,7 +1013,7 @@ export function App() {
               : undefined
           }
           onClose={() => setDialog(null)}
-          onOpened={receive}
+          onOpened={openInNewTab}
           onDiff={(view) => {
             setDialog(null);
             setDiff(view);
@@ -706,7 +1024,7 @@ export function App() {
         <RemoteDialog
           basis={basis}
           onClose={() => setDialog(null)}
-          onOpened={receive}
+          onOpened={openInNewTab}
         />
       )}
       {dialog === "about" && <About onClose={() => setDialog(null)} />}
@@ -817,36 +1135,6 @@ async function copyToClipboard(text: string): Promise<void> {
  * checkbox, because "on disk" and "logical" are both real answers and neither
  * is the absence of the other.
  */
-function BasisSwitch({
-  basis,
-  busy,
-  onChange,
-}: {
-  basis: SizeBasis;
-  /** Work in flight; the requests it would fire are already queued. */
-  busy: boolean;
-  onChange(basis: SizeBasis): void;
-}) {
-  const d = useDict();
-  const options: SizeBasis[] = ["on_disk", "logical"];
-  return (
-    <div className="basis" role="group" aria-label={d.basis.measureBy}>
-      {options.map((option) => (
-        <button
-          key={option}
-          className={option === basis ? "on" : undefined}
-          aria-pressed={option === basis}
-          disabled={busy}
-          title={basisNote(option)}
-          onClick={() => onChange(option)}
-        >
-          {basisLabel(option)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function CapacityChip({
   capacity,
   live,
@@ -877,10 +1165,11 @@ function CapacityChip({
   );
 }
 
-function Legend() {
+function Legend({ children }: { children?: React.ReactNode }) {
   const d = useDict();
   return (
     <div className="legend">
+      {children}
       {CATEGORIES.filter((name) => name !== "directory").map((name) => (
         <span className="item" key={name} title={categoryNote(name)}>
           <span className="swatch" style={{ background: categoryColor(name) }} />
@@ -936,7 +1225,7 @@ function ShapeSwitch({
   const d = useDict();
   const options: ViewShape[] = ["map", "rings"];
   return (
-    <div className="basis" role="group" aria-label={d.rings.asMap}>
+    <div className="segmented" role="group" aria-label={d.rings.asMap}>
       {options.map((option) => (
         <button
           key={option}
@@ -962,7 +1251,7 @@ function ColorSwitch({
   const d = useDict();
   const options: ColorMode[] = ["category", "age"];
   return (
-    <div className="basis" role="group" aria-label={d.age.colorBy}>
+    <div className="segmented" role="group" aria-label={d.age.colorBy}>
       {options.map((option) => (
         <button
           key={option}
@@ -982,10 +1271,12 @@ function AgeLegend({
   generation,
   node,
   basis,
+  children,
 }: {
   generation: number;
   node: number;
   basis: SizeBasis;
+  children?: React.ReactNode;
 }) {
   const d = useDict();
   const [profile, setProfile] = useState<AgeProfile | null>(null);
@@ -1004,11 +1295,12 @@ function AgeLegend({
     };
   }, [generation, node]);
 
-  if (!profile) return <div className="legend age" />;
+  if (!profile) return <div className="legend age">{children}</div>;
 
   const unknown = unknownBytes(profile, basis);
   return (
     <div className="legend age">
+      {children}
       {profile.buckets.map((bucket, band) => (
         <span className="item" key={bucket.upToDays ?? "older"}>
           <span className="swatch" style={{ background: bandColor(band) ?? undefined }} />
@@ -1027,17 +1319,65 @@ function AgeLegend({
   );
 }
 
+/**
+ * The two glyphs the new controls need, drawn rather than typed.
+ *
+ * A "▾" and a "⋯" from the text font land on a different baseline in each of
+ * the five languages' fallback faces and cannot be sized against the label
+ * beside them. These are 10×10 and inherit `currentColor`, so they follow the
+ * button they sit in through hover, focus and disabled without a rule of their
+ * own.
+ */
+function Caret() {
+  return (
+    <svg viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
+      <path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function shortName(root: string): string {
   const parts = root.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] ?? root;
 }
 
-function describe(opened: Opened, basis: SizeBasis) {
-  const d = dict();
+/**
+ * What is open, what it comes to, and what can be done to it.
+ *
+ * The line every figure in the window is read against, so it carries the one
+ * control that changes what those figures mean — and carries it *as* the
+ * figures. Both totals are printed either way, because a reader who sees only
+ * the active measure cannot tell a sparse disk from a full one; making the
+ * inactive one clickable turns a label that was already there into the switch,
+ * and removes a segmented control that said the same thing twice.
+ */
+function SourceBar({
+  opened,
+  basis,
+  busy,
+  onBasis,
+  actions,
+}: {
+  opened: Opened;
+  basis: SizeBasis;
+  /** Work in flight; the requests a change of measure fires are already queued. */
+  busy: boolean;
+  onBasis(basis: SizeBasis): void;
+  actions: MenuItem[];
+}) {
+  const d = useDict();
+  const other: SizeBasis = basis === "on_disk" ? "logical" : "on_disk";
   return (
-    <>
+    <div className="source-line">
       {opened.source.kind === "live" ? (
         <span className="badge live">{d.source.liveScan}</span>
+      ) : opened.source.kind === "scanning" ? (
+        // Said here rather than only in the progress strip above, because this
+        // is the line every figure in the window is read against: a total that
+        // is still climbing and one that is final look exactly alike.
+        <span className="badge scanning" title={d.source.scanningTitle}>
+          {d.source.scanning}
+        </span>
       ) : (
         <>
           <span className="badge snapshot">
@@ -1053,31 +1393,71 @@ function describe(opened: Opened, basis: SizeBasis) {
           )}
         </>
       )}
-      <span className="num" style={{ color: "var(--text)" }}>
+
+      <span className="root num" title={opened.source.root}>
         {opened.source.root}
       </span>
-      {/* Both totals, always, with the one being drawn by given the emphasis.
-          Showing only the active measure would leave a reader unable to tell a
-          sparse disk from a full one; showing them with equal weight leaves
-          them unable to tell which the map is built from. */}
-      <span style={{ color: "var(--text-faint)" }}>
-        <b className="num" style={{ color: "var(--text)" }}>
-          {fmt.bytes(totalOf(opened, basis))}
-        </b>{" "}
-        {basisLabel(basis).toLocaleLowerCase()} ·{" "}
-        <span className="num">
-          {fmt.bytes(basis === "on_disk" ? opened.totalSize : opened.totalAlloc)}
-        </span>{" "}
-        {basisLabel(basis === "on_disk" ? "logical" : "on_disk").toLocaleLowerCase()} ·{" "}
-        <span className="num">{fmt.count(opened.root.files)}</span> {d.source.files} ·{" "}
+
+      {/* On the line that says what is open, because that is what they act on.
+          They were behind a `⋯` here and nowhere else, which is a menu the
+          reader has to already know about to find: three commands, each one a
+          word wide, hidden behind an icon with no name. The same three are in
+          the right-click menu, and History — the only one that does not need a
+          scan open — is on the opening screen too. */}
+      {actions.length > 0 && (
+        <span className="scan-actions" role="group" aria-label={d.toolbar.thisScan}>
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              disabled={action.disabled}
+              // The reason a disabled one is disabled. A menu had nowhere to
+              // put this but a note; a button has its tooltip.
+              {...(action.note ? { title: action.note } : {})}
+              onClick={action.run}
+            >
+              {action.label}
+            </button>
+          ))}
+        </span>
+      )}
+
+      <span className="spacer" />
+
+      <span className="totals" role="group" aria-label={d.basis.measureBy}>
+        <button
+          className="on"
+          aria-pressed={true}
+          disabled={busy}
+          title={basisNote(basis)}
+          onClick={() => onBasis(basis)}
+        >
+          <b className="num">{fmt.bytes(totalOf(opened, basis))}</b>
+          {basisLabel(basis).toLocaleLowerCase()}
+        </button>
+        <button
+          aria-pressed={false}
+          disabled={busy}
+          title={basisNote(other)}
+          onClick={() => onBasis(other)}
+        >
+          <span className="num">
+            {fmt.bytes(basis === "on_disk" ? opened.totalSize : opened.totalAlloc)}
+          </span>
+          {basisLabel(other).toLocaleLowerCase()}
+        </button>
+      </span>
+
+      <span className="counts">
+        <span className="num">{fmt.count(opened.root.files)}</span> {d.source.files}
         <span className="num">{fmt.count(opened.entries)}</span> {d.source.entries}
       </span>
+
       {opened.scanErrors > 0 && (
         <span className="badge warn" title={d.source.unreadableTitle}>
           {fill(d.source.unreadable, { count: fmt.count(opened.scanErrors) })}
         </span>
       )}
-    </>
+    </div>
   );
 }
 
@@ -1152,12 +1532,14 @@ function Welcome({
   onScan,
   onSnapshots,
   onRemote,
+  onHistory,
 }: {
   busy: boolean;
   onScanPath(path: string, label: string): void;
   onScan(): void;
   onSnapshots(): void;
   onRemote(): void;
+  onHistory(): void;
 }) {
   const d = useDict();
   const [points, setPoints] = useState<StartingPoints | null>(null);
@@ -1201,6 +1583,44 @@ function Welcome({
 
         <FullDiskAccessNotice />
 
+        {points && points.volumes.length > 0 && (
+          <div className="disks">
+            <h2>
+              {d.disks.title}
+              <em>{d.disks.note}</em>
+            </h2>
+            <div className="targets">
+              {points.volumes.map((volume) => (
+                <button
+                  key={volume.path}
+                  className="target disk"
+                  disabled={busy}
+                  onClick={() => onScanPath(volume.path, volume.name)}
+                  title={fill(d.disks.scan, { name: volume.name })}
+                >
+                  <span className="icon">
+                    <span className="drive" />
+                  </span>
+                  <span className="label">
+                    <b>{volume.name}</b>
+                    <span>
+                      {volume.path}
+                      {volume.capacity && (
+                        <>
+                          {" · "}
+                          {fill(d.disks.free, {
+                            size: fmt.bytes(volume.capacity.available),
+                          })}
+                        </>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {points && points.targets.length > 0 && (
           <div className="targets">
             {points.targets.map((target) => (
@@ -1234,6 +1654,9 @@ function Welcome({
             {d.welcome.scanAnother}
           </button>
           <button onClick={onSnapshots}>{d.welcome.storedSnapshots}</button>
+          {/* The third place this is reachable from, and the one that does not
+              need a scan open first. */}
+          <button onClick={onHistory}>{d.toolbar.history}</button>
           <button onClick={onRemote}>{d.welcome.remoteAgent}</button>
         </div>
 

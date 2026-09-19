@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { locale } from "./i18n";
+import { suppressNativeMenu } from "./nativeMenu";
 import "./theme.css";
 
 // index.html ships `lang="en"` because it has to say something before any
@@ -9,6 +10,8 @@ import "./theme.css";
 // the attribute drives hyphenation and what a screen reader pronounces, and
 // German text announced as English is worse than no attribute at all.
 document.documentElement.lang = locale();
+
+suppressNativeMenu();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("missing #root");

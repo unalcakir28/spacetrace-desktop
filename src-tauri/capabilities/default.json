@@ -8,7 +8,15 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-url",
+      "description": "The three URLs this app has a button for, and nothing else. The bare permission enables the command but allows no URL through: every link in the About panel and the update strip failed silently, because the window discarded the rejection. A scope is not optional here — it is the whole permission. The site is a pattern because the changelog page carries a locale; the repository is spelled out in full, because the app links to one repository and an org-wide wildcard would grant every other one for nothing.",
+      "allow": [
+        { "url": "https://spacetrace.teknobakkall.com/*" },
+        { "url": "https://github.com/unalcakir28/spacetrace" },
+        { "url": "https://github.com/unalcakir28/spacetrace/*" }
+      ]
+    },
     "updater:default",
     "process:allow-restart"
   ]
