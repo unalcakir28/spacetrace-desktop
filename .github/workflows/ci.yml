@@ -8,12 +8,28 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# A second push to the same branch makes the first run's answer worthless, and
+# without this it still runs to completion on its own runner.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  # Linux carries the lint pass because the Tauri build script needs
-  # webkit2gtk's pkg-config files, and installing them is cheaper here than
-  # anywhere else.
-  lint:
+  # One job, not two. Linting and testing need the same expensive preparation:
+  # the webkit2gtk pkg-config files the Tauri build script looks for, and a
+  # built frontend, because `tauri::generate_context!()` reads the bundle
+  # configuration at compile time and refuses to expand when `frontendDist`
+  # does not exist. Split across two runners, that preparation ran twice and so
+  # did most of the Rust compile. Here `cargo test` reuses the dependency
+  # artifacts clippy just built.
+  #
+  # Linux, not macOS: a macOS runner bills at 10x and this was the most
+  # expensive thing in CI that was not a release build. The trade-off is real —
+  # nothing here exercises macOS-specific behaviour any more, so a macOS-only
+  # breakage first shows up in the release workflow.
+  check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -38,45 +54,23 @@ jobs:
           workspaces: src-tauri
 
       - run: yarn install --frozen-lockfile
+
       # Only `tauri build` checks this, and that runs in the release workflow —
       # so a mismatch used to pass CI and then fail the release on all three
       # platforms at once. Cheap here, expensive there.
       - run: yarn check:plugins
       - run: yarn typecheck
 
-      # `tauri::generate_context!()` reads the bundle configuration at compile
-      # time and refuses to expand when `frontendDist` does not exist, so the
-      # frontend has to be built before anything touches the Rust crate — even
-      # for a check that never links a binary. It is missing on a fresh
-      # checkout because dist/ is generated and gitignored.
+      # The Rust crate does not compile without the built frontend, tests
+      # included. dist/ is generated and gitignored, so it is missing on a
+      # fresh checkout.
       - run: yarn build
 
+      # Cheapest check first: a formatting failure should not wait behind a
+      # full test compile.
       - name: Rust
         working-directory: src-tauri
         run: |
           cargo fmt --all --check
           cargo clippy --all-targets -- -D warnings
-
-  test:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: yarn
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      # See the note in the lint job: the Rust crate does not compile without
-      # the built frontend, tests included.
-      - run: yarn install --frozen-lockfile
-      - run: yarn build
-
-      - name: Tests
-        working-directory: src-tauri
-        run: cargo test
+          cargo test

@@ -50,6 +50,7 @@ jobs:
   meta:
     name: version
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.pick.outputs.version }}
       tag: ${{ steps.pick.outputs.tag }}
@@ -93,6 +94,7 @@ jobs:
     name: ${{ matrix.label }}
     needs: meta
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -447,6 +449,7 @@ jobs:
     # A dispatch is a dry run unless it was asked to publish.
     if: github.event_name != 'workflow_dispatch' || inputs.publish
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:

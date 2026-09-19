@@ -1,13 +1,13 @@
 ---
 name: preflight
-description: Runs everything CI runs for the desktop app, cheapest first, across the two parallel jobs CI splits it into. Use before any push to main, after finishing a change and before committing it, after a core pin bump, and whenever someone asks whether CI will pass — including Turkish phrasings like "push etmeden önce kontrol et", "her şey yeşil mi", "CI geçer mi".
+description: Runs everything CI runs for the desktop app, cheapest first, in CI's own order. Use before any push to main, after finishing a change and before committing it, after a core pin bump, and whenever someone asks whether CI will pass — including Turkish phrasings like "push etmeden önce kontrol et", "her şey yeşil mi", "CI geçer mi".
 ---
 
 # Preflight — spacetrace-desktop
 
-CI splits this across **two parallel jobs**: lint on `ubuntu-24.04` and tests on
-`macos-latest`. There is no single sequence that runs all of it, which is exactly
-why it is easy to push having run half.
+CI is **one job on `ubuntu-24.04`** — lint and tests were merged so the frontend
+build and the Rust compile happen once rather than twice. The sequence below is
+that job's sequence.
 
 Run the steps **in order** and stop at the first failure — each is slower than
 the one before it.
@@ -74,8 +74,9 @@ more than their size suggests:
   cargo run -p spacetrace-changelog -- markdown --component desktop > CHANGELOG.md
   ```
 
-CI runs this job on macOS only. If the change touches Windows or Linux
-behaviour, say it needs CI rather than reporting it green.
+CI runs these on Linux. Nothing in CI exercises macOS or Windows behaviour any
+more, so if the change touches either, say it needs the release workflow rather
+than reporting it green.
 
 ## 5. Version agreement, if a release is near
 

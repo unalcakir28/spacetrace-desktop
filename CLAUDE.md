@@ -24,8 +24,9 @@ yarn install --frozen-lockfile   # this is how CI installs; yarn 1.x
 yarn tauri dev                   # full app, hot reload
 yarn dev                         # Vite only (port 5173, strictPort)
 
-# Everything CI runs. The first three are in the lint job, in this order
-# (ubuntu-24.04); cargo test is a SEPARATE, parallel job, on macos-latest only.
+# Everything CI runs, in CI's own order. It is one job on ubuntu-24.04:
+# lint and tests were merged so the frontend build and the Rust compile
+# happen once instead of twice.
 yarn check:plugins               # plugin version match — see below
 yarn typecheck                   # tsc --noEmit
 yarn build                       # tsc --noEmit && vite build
@@ -316,7 +317,7 @@ to break by hand:
 
 | Tool | When |
 |------|------|
-| `preflight` (skill) | Before pushing; CI is split into two parallel jobs, so running them by hand in order is easy to forget |
+| `preflight` (skill) | Before pushing; the order matters and the expensive steps come last, so running them by hand is easy to get wrong |
 | `release` (skill) | Cutting a release; the version in three files, and the steps that verify what was published |
 | `pin-bump` (skill) | Moving the core pin; the order, and the one test failure that means something other than what it says |
 | `dist-before-cargo` (hook) | Stops a cargo command that builds while `dist/` is missing |
@@ -355,7 +356,9 @@ Rust only, `cd src-tauri && cargo test` (`yarn build` first):
 | `tests/changelog.rs` | `CHANGELOG.md` freshness + the desktop log is not empty |
 | `#[cfg(test)]` inside `src/*.rs` | `error`, `history`, `hints`, `lib` |
 
-In CI the test job runs on `macos-latest` only.
+In CI the tests run on `ubuntu-24.04`, in the same job as lint. Nothing here
+exercises macOS-specific behaviour any more, so a macOS-only breakage first
+shows up in the release workflow.
 
 ## Known documentation gaps
 
