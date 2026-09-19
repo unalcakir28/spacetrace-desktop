@@ -3778,13 +3778,13 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-buildinfo"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 
 [[package]]
 name = "spacetrace-changelog"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3792,7 +3792,7 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-desktop"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -3817,8 +3817,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-diff"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 dependencies = [
  "serde",
  "spacetrace-scan-core",
@@ -3826,8 +3826,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-scan-core"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 dependencies = [
  "libc",
  "rayon",
@@ -3837,8 +3837,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-store"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 dependencies = [
  "anyhow",
  "gethostname",
@@ -3851,8 +3851,8 @@ dependencies = [
 
 [[package]]
 name = "spacetrace-treemap"
-version = "0.7.0"
-source = "git+https://github.com/unalcakir28/spacetrace#650ba219f849a288277d3a16c6ab5e367472cec2"
+version = "0.8.0"
+source = "git+https://github.com/unalcakir28/spacetrace#9c0309b4b1f1ac147c4aabea47fa5d2cd1469ae2"
 dependencies = [
  "serde",
  "spacetrace-scan-core",

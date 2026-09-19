@@ -10,6 +10,31 @@ Versions marked *development milestone* were never tagged and have no
 downloadable files. They are recorded because the work happened, not
 because anyone can install them.
 
+## 0.8.0 — 2026-09-19
+
+### Added
+
+- A running scan is now shown as it fills in: the same folder list, map and inspector a finished scan gets, over a tree that grows every second. Until now the screen held nothing but a percentage until the scan ended. Every figure in it is what has been read so far, so the view is marked partial and neither deleting nor saving is allowed while it runs; what you have opened, selected or zoomed into survives the refreshes and the moment the scan lands.
+- Scans now open in tabs. Home stays on the left and is never closed, so starting another scan no longer means losing the one you are reading; each scan gets a tab of its own and they can be switched between freely. Closing a tab gives its memory back — a scan of a million entries is about a hundred megabytes for as long as it is open.
+- The opening screen lists the disks. Scanning a whole filesystem was always possible and had no button anywhere: you had to know that the folder chooser accepts the root of a drive. Each disk is shown with its free space, external drives included.
+
+### Changed
+
+- The top bar carried fourteen buttons and wrapped onto three lines at the width the window actually opens at, pushing the map down. Every control now sits beside the thing it changes: the bar holds the app and where a tree comes from, the actions for the open scan are behind the ⋯ next to its path, and the map's shape and colouring are on the map. Which measure the figures are in is chosen by clicking the total you want — both are printed either way, the chosen one bright and underlined. "Reset zoom" is gone; the first step of the path above the map already did it.
+- The folder list starts narrower. More than half its width went to the figures column; that column was tightened by 16px — gaps and the length of the bar, no figure says less than it did — and the starting width came down with it. A width you set yourself is still remembered, and double-clicking the divider resets it.
+- The window can no longer be made too small to work in. The smallest size is now 1080 by 700 rather than 900 by 600: at the old one the map ended up smaller than the folder list beside it.
+- Rescan, Save snapshot and History are no longer hidden behind a single unlabelled button. They are named buttons on the line that says what is open, they are at the foot of the right-click menu, and History — the only one that does not need a scan open first — is on the opening screen too.
+
+### Fixed
+
+- The preview a first scan drew stayed blank for the whole scan: its drawing area could not take a height, so it never asked for anything and nothing but the heading "Reading the top level" was left on screen.
+- The map painted over the details column on the right as soon as the folder list was dragged wide enough — or the window made narrow enough — that the map was left with less room than its own key is wide. The two side panes now give way, the map keeps a minimum width, and none of the three overlaps another.
+- The map collapsed as soon as an error was reported above it: the error strip took the space that belonged to the map. It disappeared at exactly the moment the window was trying to explain what had gone wrong.
+- The map got substantially faster without losing any detail. Moving the pointer across it made the whole window stutter: every move repainted all ~112,000 rectangles in order to shift one thin outline — 39.4 ms per move, now 0.13 ms. The picture itself is drawn as a few dozen paths rather than one call per tile (40.6 ms down to 21.4 ms), and the coordinates cross the boundary in shorter form, taking a map's response from 10.4 MB to 5.2 MB.
+- The Website and Source code links in the About panel, and the changelog link in the update notice, did nothing. The permission that lets this app hand an address to the browser allows no address unless it is given a list, and it had none; the failure was then discarded at every call site, so a button that was never going to work looked exactly like one that was.
+- Right-clicking anywhere the app had no menu of its own brought up the web view's, offering Reload — which threw away every open scan and looked like a crash rather than something anyone asked for. That menu is now suppressed everywhere except in text fields, where it is the only route to copy and paste.
+- A directory tree nested past about 210 levels no longer closes the app. The walk recurses once per level and its threads had the ordinary default stack, so a deep enough tree overflowed it — and because a scan runs inside the app itself, the whole window went with it, leaving no message behind. The walk threads now get a 16 MiB stack and stop at 1024 levels: the directory is listed among the items that could not be read, and the scan carries on.
+
 ## 0.7.0 — 2026-09-14
 
 ### Added
