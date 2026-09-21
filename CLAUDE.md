@@ -147,6 +147,7 @@ Style: one hand-written `src/theme.css` (2336 lines of CSS variables). No Tailwi
 | `release` (skill) | Cutting release; version in three files, and steps that verify what was published |
 | `pin-bump` (skill) | Moving core pin; order, and one test failure that mean something else |
 | `dist-before-cargo` (hook) | Stop cargo command that build while `dist/` missing |
+| `version-triple-guard` (hook) | Three version file disagree, moment one of them edited — `meta` job only speak after tag push |
 
 From shared `spacetrace-tools` plugin (install it, and full list, sit in workspace notes and plugin README):
 
@@ -158,6 +159,7 @@ From shared `spacetrace-tools` plugin (install it, and full list, sit in workspa
 | `release-landed-guard` (hook) | At session start: release published that site's fallbacks or last build predate |
 | `block-changelog-edit` (hook) | Edit/Write on generated `CHANGELOG.md` |
 | `rustfmt-on-edit` (hook) | Format edited `.rs` file |
+| `doc-number-guard` (hook) | At Stop: count in this file no match tree — `#[tauri::command]`, async share, `en.ts` and `theme.css` length |
 
 Also `doc-drift-auditor`, `code-reviewer` and `test-writer`.
 
