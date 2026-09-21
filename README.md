@@ -16,9 +16,10 @@ Rust core.
 The bundles are built here and published into the
 [public core repository's releases](https://github.com/unalcakir28/spacetrace/releases),
 because a private repository's release assets need a credential to download and
-a download page cannot supply one. Two channels: `desktop-v*` for a tagged
-release and `desktop-continuous` for the newest `main`. See
-[RELEASING.md](RELEASING.md).
+a download page cannot supply one. One channel, `desktop-v*`: a `v*` tag is the
+only thing that builds anything, and a push to `main` publishes nothing. The
+rolling `desktop-continuous` builds of `main` were removed on 19 September 2026.
+See [RELEASING.md](RELEASING.md).
 
 Nothing carries a trusted developer certificate, so macOS and Windows both warn
 on first launch; the download page says exactly what to click and publishes a

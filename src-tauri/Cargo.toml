@@ -31,8 +31,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 # Self-update. The signature scheme here is Tauri's own (minisign) and is
-# independent of code signing, which this project does not have: it proves the
-# update came from us, not that the OS trusts the app.
+# independent of OS code signing: it proves the update came from us, not that
+# the OS trusts the app. There is no Apple or Windows certificate; the macOS
+# `.app` is signed with a self-signed one, and that is for TCC only — see the
+# keychain step in .github/workflows/release.yml.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 

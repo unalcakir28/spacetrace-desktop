@@ -14,12 +14,23 @@ repository's
 
 | Event | Result |
 |------|-------|
-| Push to `main` | the `desktop-continuous` tag in the public repo is deleted and recreated |
+| Push to `main` | nothing |
 | Push of a `v*` tag | permanent release under the `desktop-v*` tag in the public repo |
 | `workflow_dispatch` | builds, does not publish — unless `publish: true` is given (dry run) |
 
-Changes to `*.md`, `tasks/**` and `design-preview.html` do not trigger the
-workflow.
+**A `v*` tag is the only trigger**, since 19 September 2026. A push to `main`
+used to build all three platforms into a rolling `desktop-continuous`
+pre-release. That was the most expensive job in the account — macOS runner
+minutes bill at 10x on a private repository — for a channel the download page
+only ever fell back to, and its artifacts filled the account's 0.5 GB of
+Actions storage and then failed a real release: all three platforms built,
+nothing uploaded, `publish` skipped. Hence also `retention-days: 1` on every
+`upload-artifact` below.
+
+There is **no `paths-ignore`**, deliberately. It only ever applied to pushes,
+so with `main` gone its one remaining effect would be to skip a *tag* push
+whose commit happened to touch only documentation — publishing nothing and
+saying nothing. Do not put one back.
 
 Generated files — their names are fixed, the download page links to them
 directly:
@@ -141,9 +152,11 @@ without an icon.
 
 On launch, the app checks `latest.json` under the `desktop-latest` tag and
 asks the user if there's a new stable version. The manifest is deleted and
-recreated on every **stable** release; it doesn't look at
-`desktop-continuous`, otherwise everyone who's installed a version would be
-prompted on every push.
+recreated on every release, and a `v*` tag is the only thing that makes one.
+It used to have to ignore the rolling `desktop-continuous` builds as well, or
+everyone who had installed a version would have been prompted on every push;
+that channel went on 19 September 2026, so there is nothing left for it to
+point at by accident.
 
 **One-time setup.** The signing key was generated and lives in
 `~/.spacetrace/updater.key` (600, outside every repo). Its public key is in
@@ -172,8 +185,10 @@ moment the secret is added.
 
 **This key is not code signing.** Tauri's minisign signature proves the
 package came from this pipeline; it doesn't say the operating system trusts
-the app. Because the app is unsigned on macOS, the updated package can get
-caught by Gatekeeper again — the changelog entry tells the user this.
+the app. The macOS `.app` does carry a signature, but from our own
+self-signed certificate: a stable identity for TCC and nothing at all to
+Gatekeeper. So an updated package can get caught by Gatekeeper again — the
+changelog entry tells the user this.
 
 Losing the key means installed apps can no longer update: a manifest signed
 with a new key is rejected by the old `pubkey`. The recovery path is having

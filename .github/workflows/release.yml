@@ -12,9 +12,12 @@ name: Release
 # repository — for a channel the download page only ever fell back to, and its
 # artifacts filled the account's Actions storage and failed a real release.
 #
-# Nothing is code-signed. macOS and Windows will both warn on first launch and
-# the download page says so and how to get past it; signing needs certificates
-# that cost money and cannot live in a repo.
+# There is no Apple or Windows certificate: those cost money per year and
+# cannot live in a repo, so macOS and Windows both warn on first launch and the
+# download page says so and how to get past it. The macOS `.app` *is* signed,
+# with a certificate of our own that is trusted on the builder alone. That buys
+# nothing with Gatekeeper; it exists so the Full Disk Access grant survives an
+# update. The keychain step below has the whole argument.
 
 # No `paths-ignore`: it only ever applied to pushes, so with `main` gone its
 # one remaining effect would be to skip a *tag* push whose commit happened to
@@ -30,8 +33,8 @@ on:
       publish:
         description: >-
           Publish the result. Off by default, so a dispatch is a dry run.
-          Turn it on to release a tag by hand — which is the way out if the
-          paths-ignore filter above skipped a tag push.
+          Turn it on to release a tag by hand — which is the way out if a
+          tag push ran no workflow at all.
         type: boolean
         default: false
 
@@ -155,7 +158,8 @@ jobs:
       # Give the macOS app a stable code identity.
       #
       # This is **not** about Gatekeeper — a self-signed certificate buys
-      # nothing there, and the download page still says the app is unsigned.
+      # nothing there, and the download page still walks the user through the
+      # first-launch refusal.
       # It is about TCC. macOS keys Full Disk Access and every folder
       # permission to an app's *designated requirement*; an ad-hoc signature
       # has none, so the system falls back to the binary's cdhash. Every

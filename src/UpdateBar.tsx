@@ -6,10 +6,11 @@
 //   that to announce a version is the wrong trade, and a dialog on launch is
 //   the thing people click through without reading.
 //
-// * **Nothing is downloaded until the button is pressed.** This app is not
-//   code-signed, so an unsigned binary replacing itself in the background is a
-//   bad shape regardless of the signature Tauri checks. It also spends someone
-//   else's bandwidth without asking.
+// * **Nothing is downloaded until the button is pressed.** No operating system
+//   vouches for this app — the macOS signature is our own, for TCC, and buys
+//   nothing with Gatekeeper — so a binary the OS does not trust replacing
+//   itself in the background is a bad shape regardless of the signature Tauri
+//   checks. It also spends someone else's bandwidth without asking.
 //
 // * **What changed is a link, not text.** The update manifest can only carry
 //   notes in one language, and this window may be in any of five. The
