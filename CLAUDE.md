@@ -153,7 +153,9 @@ From shared `spacetrace-tools` plugin (install it, and full list, sit in workspa
 | Tool | When |
 | ---- | ---- |
 | `core-pin-guard` (agent) | Core API diff before moving pin |
+| `release-landed` (skill) | After cutting release: installers downloadable, `desktop-latest` moved, site fallbacks bumped, site rebuilt |
 | `pin-move-guard` (hook) | Warn before `cargo update` move pin |
+| `release-landed-guard` (hook) | At session start: release published that site's fallbacks or last build predate |
 | `block-changelog-edit` (hook) | Edit/Write on generated `CHANGELOG.md` |
 | `rustfmt-on-edit` (hook) | Format edited `.rs` file |
 
